@@ -15,7 +15,7 @@ A local AI desktop assistant powered by **LM Studio** or **Ollama**. Everything 
 
 ## Quick Start (Download Release)
 
-1. Go to [Releases](https://github.com/dungtienhuynh04-collab/Ai-Ana/releases) (replace `YOUR_USERNAME` with the repo owner)
+1. Go to [Releases](https://github.com/dungtienhuynh04-collab/Ai-Ana/releases) 
 2. Download **Nova Bot Setup 1.0.0.exe** (installer) or **Nova Bot 1.0.0 win.zip** (portable)
 3. Run the app
 4. Start **LM Studio** → Developer tab → enable Local Server
