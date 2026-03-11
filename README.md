@@ -15,7 +15,7 @@ A local AI desktop assistant powered by **LM Studio** or **Ollama**. Everything 
 
 ## Quick Start (Download Release)
 
-1. Go to [Releases](https://github.com/YOUR_USERNAME/Ai-Ana/releases) (replace `YOUR_USERNAME` with the repo owner)
+1. Go to [Releases](https://github.com/dungtienhuynh04-collab/Ai-Ana/releases) (replace `YOUR_USERNAME` with the repo owner)
 2. Download **Nova Bot Setup 1.0.0.exe** (installer) or **Nova Bot 1.0.0 win.zip** (portable)
 3. Run the app
 4. Start **LM Studio** → Developer tab → enable Local Server
@@ -33,7 +33,7 @@ A local AI desktop assistant powered by **LM Studio** or **Ollama**. Everything 
 1. Open **Settings** in the app
 2. Go to **Provider**:
    - **Provider**: LM Studio (or Ollama)
-   - **Endpoint**: `http://localhost:1234` (LM Studio) or `http://localhost:11434` (Ollama)
+   - **Endpoint**: `http://127.0.0.1:11434` (LM Studio) or `http://localhost:11434` (Ollama)
    - **Model Name**: exact name of the model loaded in LM Studio (e.g. `llama-3.1-8b`)
 
 ## Build from Source
@@ -46,7 +46,7 @@ A local AI desktop assistant powered by **LM Studio** or **Ollama**. Everything 
 ### Install & Run
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Ai-Ana.git
+git clone https://github.com/dungtienhuynh04-collab/Ai-Ana.git
 cd Ai-Ana
 npm install
 npm run electron:dev
