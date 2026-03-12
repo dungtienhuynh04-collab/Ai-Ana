@@ -8,16 +8,13 @@
   "scripts": {
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "dev": "vite",
-    "server": "node server/index.js",
-    "dev:web": "concurrently \"vite\" \"node server/index.js\"",
-    "dev:tunnel": "concurrently \"npm run dev:web\" \"wait-on http://localhost:5173 -t 10000 && npx localtunnel --port 5173\"",
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "electron .",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
-    "dist": "node scripts/kill-app.js && npm run build && electron-builder --win"
+    "dist": "npm run build && node scripts/build-release.js"
   },
   "build": {
     "appId": "com.novabot.app",

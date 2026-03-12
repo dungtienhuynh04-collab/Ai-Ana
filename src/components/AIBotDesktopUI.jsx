@@ -23,7 +23,6 @@ export default function AIBotDesktopUI({
   onDeleteChat = () => {},
   onRenameChat = () => {},
   hasElectronAPI = true,
-  hasWebAPI = false,
 }) {
   const chatInputRef = useRef(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -60,12 +59,12 @@ export default function AIBotDesktopUI({
   }, [settingValues["Chat Ratio"]]);
 
   useEffect(() => {
-    if (activeTab === "log" && (hasElectronAPI || hasWebAPI)) {
+    if (activeTab === "log" && hasElectronAPI) {
       onGetLogs().then(setLogEntries);
       const id = setInterval(() => onGetLogs().then(setLogEntries), 2000);
       return () => clearInterval(id);
     }
-  }, [activeTab, hasElectronAPI, hasWebAPI, onGetLogs]);
+  }, [activeTab, hasElectronAPI, onGetLogs]);
 
   useEffect(() => {
     if (systemPromptEditorOpen) {
@@ -314,11 +313,6 @@ export default function AIBotDesktopUI({
 
   return (
     <div className={`h-screen w-full flex flex-col overflow-hidden p-4 ${theme.app}`}>
-      {hasWebAPI && (
-        <div className="mb-4 shrink-0 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-cyan-200 text-sm">
-          Web mode. Run <code className="rounded bg-black/30 px-1">npm run dev:web</code> to start backend + frontend.
-        </div>
-      )}
       <div className={`mx-auto flex-1 w-full max-w-full min-w-0 overflow-hidden ${uiStyle.border} ${uiStyle.shell} ${theme.shell} shadow-2xl backdrop-blur ${accentGlow}`}>
         <div className="relative h-full min-w-0 overflow-hidden">
           {sidebarCollapsed && (
@@ -502,8 +496,8 @@ export default function AIBotDesktopUI({
                       </button>
                     </div>
                     <div className={`mt-4 min-h-0 flex-1 overflow-auto font-mono text-xs ${isLightTheme ? "text-neutral-700" : "text-white/80"}`}>
-                      {!hasElectronAPI && !hasWebAPI ? (
-                        <p className={textSub}>Run npm run dev:web to see logs.</p>
+                      {!hasElectronAPI ? (
+                        <p className={textSub}>Electron API not available.</p>
                       ) : logEntries.length === 0 ? (
                         <p className={textSub}>No logs yet. Send a message to generate activity.</p>
                       ) : (

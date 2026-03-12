@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
 import AIBotDesktopUI from "./components/AIBotDesktopUI";
-import { webApi } from "./api/webApi";
 
 const DEFAULT_SETTINGS = {
   "UI Language": "English",
@@ -54,7 +53,6 @@ function saveChats(chats) {
 }
 
 const electronApi = typeof window !== "undefined" && window.electronAPI ? window.electronAPI : null;
-const api = electronApi || webApi;
 
 export default function App() {
   const [settingValues, setSettingValues] = useState(DEFAULT_SETTINGS);
@@ -72,14 +70,14 @@ export default function App() {
 
   // Load settings from backend
   useEffect(() => {
-    api.settingsGetAll?.().then((s) => {
+    electronApi?.settingsGetAll?.().then((s) => {
       if (s && Object.keys(s).length) setSettingValues((prev) => ({ ...prev, ...s }));
     }).catch(() => {});
   }, []);
 
   // Load memory from backend
   useEffect(() => {
-    api.memoryGetAll?.().then((rows) => {
+    electronApi?.memoryGetAll?.().then((rows) => {
       if (rows?.length) setMemoryRows(rows.map((r) => ({ ...r, selected: false })));
     }).catch(() => {});
   }, []);
@@ -133,7 +131,7 @@ export default function App() {
     (name, value) => {
       setSettingValues((prev) => {
         const next = { ...prev, [name]: value };
-        api.settingsSet?.(name, value).catch(() => {});
+        electronApi?.settingsSet?.(name, value).catch(() => {});
         return next;
       });
     },
@@ -186,7 +184,7 @@ export default function App() {
       topP: settingValues["Top P"],
       contextWindow: settingValues["Context Window"]
     };
-    console.log("[DEBUG] Sending systemPrompt:", llmOptions.systemPrompt);
+
 
     if (electronApi?.chatStream) {
       electronApi.removeChatListeners?.();
@@ -204,94 +202,71 @@ export default function App() {
         setIsLoading(false);
         electronApi.removeChatListeners?.();
       }
-    } else if (api.chatStream) {
-      try {
-        await api.chatStream(allMessages, llmOptions, chunkHandler, doneHandler);
-      } catch (err) {
-        setMessages((m) => {
+    } else {
+       setMessages((m) => {
           const copy = [...m];
           const last = copy[copy.length - 1];
-          if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: (last.content || "") + `\n[Error: ${err.message}]` };
+          if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: "[Error: Electron API not found. Are you running in Electron?]" };
           return copy;
         });
         setIsLoading(false);
-      }
-    } else {
-      try {
-        const res = await api.chat?.(allMessages, llmOptions) ?? "Backend not running. Run: npm run dev:web";
-        setMessages((m) => {
-          const copy = [...m];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: res };
-          return copy;
-        });
-      } catch (err) {
-        setMessages((m) => {
-          const copy = [...m];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: `[Error: ${err.message}]` };
-          return copy;
-        });
-      }
-      setIsLoading(false);
     }
   }, [inputText, isLoading, messages, activeChatId, settingValues]);
 
   const handleMemoryAdd = useCallback((record) => {
-    if (!api.memoryAdd) {
-      const nextId = Math.max(0, ...memoryRows.map((r) => r.id || 0)) + 1;
-      setMemoryRows((r) => [{ ...record, id: nextId }, ...r]);
-      return;
+    if (electronApi?.memoryAdd) {
+      electronApi.memoryAdd(record).then((id) => {
+        if (id) setMemoryRows((r) => [{ ...record, id }, ...r.map((x) => ({ ...x, selected: false }))]);
+      }).catch(() => {
+        const nextId = Math.max(0, ...memoryRows.map((r) => r.id || 0)) + 1;
+        setMemoryRows((r) => [{ ...record, id: nextId }, ...r]);
+      });
+    } else {
+       const nextId = Math.max(0, ...memoryRows.map((r) => r.id || 0)) + 1;
+       setMemoryRows((r) => [{ ...record, id: nextId }, ...r]);
     }
-    api.memoryAdd(record).then((id) => {
-      if (id) setMemoryRows((r) => [{ ...record, id }, ...r.map((x) => ({ ...x, selected: false }))]);
-    }).catch(() => {
-      const nextId = Math.max(0, ...memoryRows.map((r) => r.id || 0)) + 1;
-      setMemoryRows((r) => [{ ...record, id: nextId }, ...r]);
-    });
   }, [memoryRows]);
 
   const handleMemoryUpdate = useCallback((id, content) => {
-    api?.memoryUpdate?.(id, content);
+    electronApi?.memoryUpdate?.(id, content);
     setMemoryRows((r) => r.map((x) => (x.id === id ? { ...x, content } : x)));
   }, []);
 
   const handleMemoryDelete = useCallback((id) => {
-    api?.memoryDelete?.(id);
+    electronApi?.memoryDelete?.(id);
     setMemoryRows((r) => r.filter((x) => x.id !== id));
   }, []);
 
   const handleMemoryDeleteMany = useCallback((ids) => {
-    api?.memoryDeleteMany?.(ids);
+    electronApi?.memoryDeleteMany?.(ids);
     setMemoryRows((r) => r.filter((x) => !ids.includes(x.id)));
   }, []);
 
   const handleMemorySearch = useCallback((query) => {
-    if (api?.memorySearch && query) {
-      api.memorySearch(query).then((rows) => setMemoryRows(rows.map((r) => ({ ...r, selected: false }))));
-    } else if (api?.memoryGetAll) {
-      api.memoryGetAll().then((rows) => setMemoryRows(rows.map((r) => ({ ...r, selected: false }))));
+    if (electronApi?.memorySearch && query) {
+      electronApi.memorySearch(query).then((rows) => setMemoryRows(rows.map((r) => ({ ...r, selected: false }))));
+    } else if (electronApi?.memoryGetAll) {
+      electronApi.memoryGetAll().then((rows) => setMemoryRows(rows.map((r) => ({ ...r, selected: false }))));
     }
   }, []);
 
   const handleSaveSettings = useCallback(() => {
-    if (api.settingsSetBulk) {
-      api.settingsSetBulk(settingValues).then(() => {}).catch(() => {});
+    if (electronApi?.settingsSetBulk) {
+      electronApi.settingsSetBulk(settingValues).then(() => {}).catch(() => {});
       return true;
     }
     return false;
   }, [settingValues]);
 
-  const handleGetLogs = useCallback(() => api.logGetAll?.() ?? Promise.resolve([]), []);
+  const handleGetLogs = useCallback(() => electronApi?.logGetAll?.() ?? Promise.resolve([]), []);
 
   const handleClearLogs = useCallback(() => {
-    api.logClear?.().catch(() => {});
+    electronApi?.logClear?.().catch(() => {});
   }, []);
 
   return (
     <AIBotDesktopUI
       hasElectronAPI={!!electronApi}
-      hasWebAPI={!!(!electronApi && typeof window !== "undefined")}
       settingValues={settingValues}
       onSettingChange={handleSettingChange}
       memoryRows={memoryRows}
