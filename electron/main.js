@@ -85,7 +85,9 @@ ipcMain.handle("memory:search", async (_, query) => {
 });
 
 ipcMain.handle("memory:add", async (_, record) => {
-  return memoryService.add(record);
+  const settings = settingsService.getAll();
+  const capacity = parseInt(settings["Database Capacity"] || "100", 10);
+  return memoryService.add(record, capacity);
 });
 
 ipcMain.handle("memory:update", async (_, id, content) => {

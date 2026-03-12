@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS = {
   "System Prompt": "You are a helpful AI assistant. Adapt to the user's needs.",
   "Min Memory Score": "0.8",
   "Max Memory Count": "3",
+  "Database Capacity": "100",
   Streaming: "Enabled",
 };
 

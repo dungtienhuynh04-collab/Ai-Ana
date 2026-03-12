@@ -102,8 +102,26 @@ export const memoryService = {
       .map((e) => e.row);
   },
 
-  add(record) {
+  add(record, limit = null) {
     if (!db) return null;
+
+    if (limit && limit > 0) {
+      const countRow = db.prepare("SELECT COUNT(*) as count FROM memories").get();
+      if (countRow.count >= limit) {
+        // Find the memory with the lowest score (if tied, get the oldest one)
+        const lowest = db.prepare("SELECT id, score FROM memories ORDER BY score ASC, id ASC LIMIT 1").get();
+        const newScore = record.score ?? 0.5;
+        
+        if (lowest && newScore >= lowest.score) {
+          // Delete the lowest scoring memory to make room
+          db.prepare("DELETE FROM memories WHERE id = ?").run(lowest.id);
+        } else if (lowest && newScore < lowest.score) {
+          // New memory has a lower score than everything in the database, discard it
+          return null;
+        }
+      }
+    }
+
     const stmt = db.prepare(
       "INSERT INTO memories (user, content, time, score) VALUES (?, ?, ?, ?)"
     );

@@ -120,12 +120,13 @@ User message: "${userText}"`;
           return;
         }
         // Note: For "Review First", we currently save it directly but could add a UI prompt later.
+        const capacity = parseInt(settings["Database Capacity"] || "100", 10);
         logService.info("Auto-Learning", `Extracted new memory: ${extractedFact}`);
         memoryService.add({
           user: "User",
           content: extractedFact,
           score: 0.8 // Higher score for auto-extracted facts
-        });
+        }, capacity);
       }
     } catch (e) {
       logService.error("Auto-Learning failed", e.message);
