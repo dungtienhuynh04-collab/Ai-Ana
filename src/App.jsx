@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const CHATS_KEY = "nova-chats";
-const DEFAULT_CHAT = { id: "1", title: "General Assistant", messages: [{ role: "assistant", content: "Hey! I'm your AI bot. I can help with writing, coding, planning, or just vibing through ideas." }] };
+const DEFAULT_CHAT = { id: "1", title: "General Assistant", messages: [] };
 
 function loadChats() {
   try {
@@ -97,7 +97,7 @@ export default function App() {
 
   const handleNewChat = useCallback(() => {
     const id = String(Date.now());
-    const newChat = { id, title: "New Chat", messages: [{ role: "assistant", content: "Hey! I'm your AI bot. How can I help?" }] };
+    const newChat = { id, title: "New Chat", messages: [] };
     setChats((prev) => {
       const next = [newChat, ...prev];
       saveChats(next);
@@ -111,7 +111,7 @@ export default function App() {
   const handleDeleteChat = useCallback((id) => {
     let remaining = chats.filter((c) => c.id !== id);
     if (remaining.length === 0) {
-      const newChat = { id: String(Date.now()), title: "New Chat", messages: [{ role: "assistant", content: "Hey! How can I help?" }] };
+      const newChat = { id: String(Date.now()), title: "New Chat", messages: [] };
       remaining = [newChat];
     }
     setChats(remaining);
@@ -250,6 +250,10 @@ export default function App() {
     }
   }, []);
 
+  const handleOpenMemoryEditor = useCallback(() => {
+    handleMemorySearch("");
+  }, [handleMemorySearch]);
+
   const handleSaveSettings = useCallback(() => {
     if (electronApi?.settingsSetBulk) {
       electronApi.settingsSetBulk(settingValues).then(() => {}).catch(() => {});
@@ -275,6 +279,7 @@ export default function App() {
       onMemoryDelete={handleMemoryDelete}
       onMemoryDeleteMany={handleMemoryDeleteMany}
       onMemorySearch={handleMemorySearch}
+      onOpenMemoryEditor={handleOpenMemoryEditor}
       onSaveSettings={handleSaveSettings}
       onGetLogs={handleGetLogs}
       onClearLogs={handleClearLogs}

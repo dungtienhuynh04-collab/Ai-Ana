@@ -61,6 +61,29 @@ export const memoryService = {
     }));
   },
 
+  searchMulti(keywords, limit = 10) {
+    if (!db || !keywords?.length) return [];
+    const seen = new Map(); // id -> { row, matchCount }
+    for (const kw of keywords) {
+      if (!kw || kw.length < 2) continue;
+      const q = `%${kw}%`;
+      const rows = db
+        .prepare("SELECT id, user, content, time, score FROM memories WHERE content LIKE ? ORDER BY id DESC LIMIT 20")
+        .all(q);
+      for (const r of rows) {
+        if (seen.has(r.id)) {
+          seen.get(r.id).matchCount++;
+        } else {
+          seen.set(r.id, { row: r, matchCount: 1 });
+        }
+      }
+    }
+    return [...seen.values()]
+      .sort((a, b) => b.matchCount - a.matchCount || b.row.id - a.row.id)
+      .slice(0, limit)
+      .map((e) => e.row);
+  },
+
   add(record) {
     if (!db) return null;
     const stmt = db.prepare(

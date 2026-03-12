@@ -9,6 +9,8 @@ export default function AIBotDesktopUI({
   onMemoryUpdate = () => {},
   onMemoryDelete = () => {},
   onMemoryDeleteMany = () => {},
+  onMemorySearch = () => {},
+  onOpenMemoryEditor = () => {},
   onGetLogs = () => Promise.resolve([]),
   onClearLogs = () => {},
   messages = [],
@@ -462,7 +464,10 @@ export default function AIBotDesktopUI({
                             item={item}
                             currentValue={settingValues[item.name] ?? item.value}
                             onAction={() => {
-                              if (item.name === "Edit Long-Term Memory") setMemoryEditorOpen(true);
+                              if (item.name === "Edit Long-Term Memory") {
+                                onOpenMemoryEditor();
+                                setMemoryEditorOpen(true);
+                              }
                               if (item.name === "Screen Capture Settings") setScreenCaptureSettingsOpen(true);
                               if (item.name === "System Prompt") setSystemPromptEditorOpen(true);
                             }}
