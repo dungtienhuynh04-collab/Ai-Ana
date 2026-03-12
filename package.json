@@ -8,6 +8,8 @@
   "scripts": {
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "dev": "vite",
+    "server": "node server/index.js",
+    "dev:web": "concurrently \"vite\" \"node server/index.js\"",
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
@@ -15,11 +17,14 @@
     "start": "electron .",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "dist": "npm run build && electron-builder --win",
-    "dist:dir": "npm run build && electron-builder --win --dir"
+    "dist:dir": "npm run build && electron-builder --win --dir",
+    "release-zip": "npm run dist && node scripts/create-release-zip.js",
+    "zip-project": "node scripts/zip-project.js"
   },
   "build": {
     "appId": "com.novabot.app",
     "productName": "Nova Bot",
+    "asar": false,
     "directories": {
       "output": "release"
     },
@@ -49,6 +54,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.6.0",
+    "express": "^4.21.0",
     "openai": "^4.73.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

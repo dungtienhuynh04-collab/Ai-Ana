@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import { llmService } from "./services/llm.js";
+import { logService } from "./services/log.js";
 import { memoryService } from "./services/memory.js";
 import { settingsService } from "./services/settings.js";
 
@@ -10,6 +11,10 @@ const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 
 let mainWindow;
 
+function getPreloadPath() {
+  return path.join(__dirname, "preload.js");
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -17,7 +22,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: getPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -107,3 +112,7 @@ ipcMain.handle("settings:set", async (_, key, value) => {
 ipcMain.handle("settings:set-bulk", async (_, values) => {
   return settingsService.setBulk(values);
 });
+
+// Log
+ipcMain.handle("log:get-all", async () => logService.getAll());
+ipcMain.handle("log:clear", async () => logService.clear());

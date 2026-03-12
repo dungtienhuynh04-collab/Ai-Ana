@@ -1,7 +1,9 @@
 import OpenAI from "openai";
 import { settingsService } from "./settings.js";
+import { logService } from "./log.js";
 
-let client = null;
+const CHARS_PER_TOKEN = 4;
+const DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant.";
 
 function getClient() {
   const settings = settingsService.getAll();
@@ -27,8 +29,11 @@ export const llmService = {
     try {
       const c = getClient();
       const list = await c.models.list();
-      return { ok: true, models: list.data?.map((m) => m.id) || [] };
+      const models = list.data?.map((m) => m.id) || [];
+      logService.info("LM Studio", `Listed ${models.length} models: ${models.slice(0, 3).join(", ")}${models.length > 3 ? "..." : ""}`);
+      return { ok: true, models };
     } catch (e) {
+      logService.error("LM Studio", e.message);
       return { ok: false, error: e.message, models: [] };
     }
   },
@@ -42,21 +47,51 @@ export const llmService = {
     }
   },
 
+  _prepareMessages(messages, settings) {
+    const systemContent = (settings["System Prompt"] || "").trim() || DEFAULT_SYSTEM_PROMPT;
+    const contextWindow = parseInt(settings["Context Window"] || "32768", 10);
+    const maxTokens = parseInt(settings["Max Output Tokens"] || "4096", 10);
+    const inputBudget = Math.max(1024, (contextWindow - maxTokens) * CHARS_PER_TOKEN);
+
+    const systemMsg = { role: "system", content: systemContent };
+    let budget = inputBudget - systemContent.length;
+    const out = [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      const len = (m.content || "").length;
+      if (budget - len < 0) break;
+      out.unshift(m);
+      budget -= len;
+    }
+    return [systemMsg, ...out];
+  },
+
   async chat(messages, options = {}) {
     const settings = settingsService.getAll();
     const model = options.model || settings["Model Name"] || "local-model";
     const temperature = parseFloat(settings.Temperature || "0.7");
     const maxTokens = parseInt(settings["Max Output Tokens"] || "4096", 10);
+    const topP = parseFloat(settings["Top P"] || "0.95");
+    const prepared = this._prepareMessages(messages, settings);
 
-    const client = getClient();
-    const res = await client.chat.completions.create({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-    });
-    return res.choices[0]?.message?.content || "";
+    logService.info("Request", `model=${model} messages=${prepared.length} ctx=${settings["Context Window"] || "32768"}`);
+    try {
+      const client = getClient();
+      const res = await client.chat.completions.create({
+        model,
+        messages: prepared,
+        temperature,
+        max_tokens: maxTokens,
+        top_p: topP,
+        stream: false,
+      });
+      const content = res.choices[0]?.message?.content || "";
+      logService.info("Response", `tokens ~${content.length}`);
+      return content;
+    } catch (e) {
+      logService.error("Chat failed", e.message);
+      throw e;
+    }
   },
 
   async chatStream(messages, options, mainWindow) {
@@ -64,30 +99,52 @@ export const llmService = {
     const model = options.model || settings["Model Name"] || "local-model";
     const temperature = parseFloat(settings.Temperature || "0.7");
     const maxTokens = parseInt(settings["Max Output Tokens"] || "4096", 10);
+    const topP = parseFloat(settings["Top P"] || "0.95");
     const streamEnabled = settings.Streaming === "Enabled";
+    const prepared = this._prepareMessages(messages, settings);
+
+    logService.info("Request", `stream=${streamEnabled} model=${model} messages=${prepared.length}`);
 
     if (!streamEnabled || !mainWindow) {
-      const full = await this.chat(messages, options);
-      if (mainWindow?.webContents) {
-        mainWindow.webContents.send("chat-stream-chunk", full);
-        mainWindow.webContents.send("chat-stream-done");
+      try {
+        const full = await this.chat(messages, options);
+        if (mainWindow?.webContents) {
+          mainWindow.webContents.send("chat-stream-chunk", full);
+          mainWindow.webContents.send("chat-stream-done");
+        }
+      } catch (e) {
+        if (mainWindow?.webContents) {
+          mainWindow.webContents.send("chat-stream-chunk", `\n[Error: ${e.message}]`);
+          mainWindow.webContents.send("chat-stream-done");
+        }
       }
       return;
     }
 
-    const client = getClient();
-    const stream = await client.chat.completions.create({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      stream: true,
-    });
+    try {
+      const client = getClient();
+      const stream = await client.chat.completions.create({
+        model,
+        messages: prepared,
+        temperature,
+        max_tokens: maxTokens,
+        top_p: topP,
+        stream: true,
+      });
 
-    for await (const chunk of stream) {
-      const text = chunk.choices[0]?.delta?.content;
-      if (text && mainWindow?.webContents) {
-        mainWindow.webContents.send("chat-stream-chunk", text);
+      let tokenCount = 0;
+      for await (const chunk of stream) {
+        const text = chunk.choices[0]?.delta?.content;
+        if (text && mainWindow?.webContents) {
+          tokenCount++;
+          mainWindow.webContents.send("chat-stream-chunk", text);
+        }
+      }
+      logService.info("Response", `streamed ~${tokenCount} chunks`);
+    } catch (e) {
+      logService.error("Stream failed", e.message);
+      if (mainWindow?.webContents) {
+        mainWindow.webContents.send("chat-stream-chunk", `\n[Error: ${e.message}]`);
       }
     }
     if (mainWindow?.webContents) {

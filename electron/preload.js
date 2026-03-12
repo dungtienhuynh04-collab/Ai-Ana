@@ -31,4 +31,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("chat-stream-chunk");
     ipcRenderer.removeAllListeners("chat-stream-done");
   },
+
+  // Log
+  logGetAll: () => ipcRenderer.invoke("log:get-all"),
+  logClear: () => ipcRenderer.invoke("log:clear"),
 });

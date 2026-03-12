@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS = {
   "Top P": "0.95",
   "Max Output Tokens": "4096",
   "Context Window": "32768",
-  "System Prompt": "Custom",
+  "System Prompt": "You are a helpful AI assistant. Adapt to the user's needs.",
   Streaming: "Enabled",
   "STT Provider": "Local / Whisper",
   "STT Model": "faster-whisper-large-v3",

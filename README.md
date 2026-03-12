@@ -8,79 +8,110 @@ A local AI desktop assistant powered by **LM Studio** or **Ollama**. Everything 
 ## Features
 
 - **Chat** with local LLMs (LM Studio, Ollama) with streaming
+- **Multiple chats** with history, New Chat, delete chat
+- **System prompt** – edit in app (no need for LM Studio)
 - **Long-term memory** stored in SQLite
-- **Settings** persisted locally
-- **Full-screen** responsive UI
+- **Settings** persisted locally (Theme, LLM, Context Window, etc.)
+- **Full-screen** responsive UI, resizable avatar panel
 - 100% local and free
 
-## Quick Start (Download Release)
+---
 
-1. Go to [Releases](https://github.com/dungtienhuynh04-collab/Ai-Ana/releases) 
-2. Download **Nova Bot Setup 1.0.0.exe** (installer) or **Nova Bot 1.0.0 win.zip** (portable)
-3. Run the app
-4. Start **LM Studio** → Developer tab → enable Local Server
-5. Load a model in LM Studio
-6. In Nova Bot: **Settings** → **Provider** → set **Model Name** to match your loaded model
+## Setup & Run (for users)
 
-## Requirements
+### Step 1: Download
 
-- **Windows** 10/11 (64-bit)
-- **LM Studio** or **Ollama** (for local LLM)
-- No Node.js needed when using the release build
+1. Go to [Releases](https://github.com/dungtienhuynh04-collab/Ai-Ana/releases)
+2. Download **Nova Bot-1.0.0-win.zip** (portable, no installation required)
 
-## Configuration
+### Step 2: Extract and run
 
-1. Open **Settings** in the app
-2. Go to **Provider**:
-   - **Provider**: LM Studio (or Ollama)
-   - **Endpoint**: `http://127.0.0.1:11434` (LM Studio) or `http://localhost:11434` (Ollama)
-   - **Model Name**: exact name of the model loaded in LM Studio (e.g. `llama-3.1-8b`)
+1. Extract the zip file (right-click → **Extract All**)
+2. Open the extracted folder
+3. Double-click **Nova Bot.exe** to run
 
-## Build from Source
+**Note:** No Node.js or other software needed. Windows 10/11 (64-bit) only.
 
-### Prerequisites
+### Step 3: Install LM Studio (for AI chat)
 
-- Node.js 18+
-- npm
+1. Download and install [LM Studio](https://lmstudio.ai/)
+2. Open LM Studio → **Developer** tab → enable **Local Server** (port 1234)
+3. Download and load a model (e.g. Llama, Qwen) in LM Studio
+4. In Nova Bot: **Settings** → **Provider**:
+   - **Endpoint:** `http://localhost:1234`
+   - **Model Name:** type the exact model name shown in LM Studio (e.g. `llama-3.1-8b-instruct`)
 
-### Install & Run
+### Step 4: Start chatting
+
+Click **Chat** and type your message. The AI will respond using the model you loaded in LM Studio.
+
+---
+
+## Using Ollama instead of LM Studio
+
+1. Install [Ollama](https://ollama.ai/)
+2. Open CMD/Terminal and run: `ollama run llama3.1` (or another model)
+3. In Nova Bot: **Settings** → **Provider**:
+   - **Provider:** Local / Ollama
+   - **Endpoint:** `http://localhost:11434`
+   - **Model Name:** model name (e.g. `llama3.1`)
+
+---
+
+## Settings reference
+
+| Setting | Description |
+|---------|-------------|
+| **Model Name** | Must match the model name in LM Studio exactly |
+| **Temperature** | Creativity level (0–2) |
+| **Context Window** | Max tokens for conversation |
+| **System Prompt** | Settings → LLM → click System Prompt to edit |
+| **Avatar Panel** | Toggle on/off, resize 30–70% |
+
+---
+
+## For developers (Build from source)
+
+Requires Node.js 18+ and npm.
 
 ```bash
-git clone https://github.com/dungtienhuynh04-collab/Ai-Ana.git
-cd Ai-Ana
 npm install
-npm run electron:dev
-```
-
-### Build Release (Windows)
-
-```bash
-npm run build
 npm run dist
 ```
 
-Outputs:
+Output: `release/Nova Bot-1.0.0-win.zip` – package for uploading to Releases.
 
-- `release/Nova-Bot-Setup-1.0.0.exe` – installer
-- `release/Nova-Bot-1.0.0-win.zip` – portable ZIP
+**Note:** Close Nova Bot before running `npm run dist`.
 
-## Project Structure
+---
+
+## Project structure
 
 ```
-├── electron/
-│   ├── main.js           # Electron main process
-│   ├── preload.js        # IPC bridge
-│   └── services/
-│       ├── llm.js        # LM Studio / Ollama API
-│       ├── memory.js     # SQLite memory
-│       └── settings.js   # Settings persistence
+├── electron/           # Desktop app (main, preload, services)
+├── server/             # Web mode backend (Express)
 ├── src/
 │   ├── App.jsx
+│   ├── api/
 │   └── components/
 │       └── AIBotDesktopUI.jsx
+├── RUN-WEB.bat        # One-click web mode
+├── RUN-EXE.bat        # One-click Electron
 ├── package.json
 └── README.md
 ```
+
+---
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| No response | Ensure LM Studio Local Server is enabled |
+| Model not found | Type the exact model name in Settings → Model Name |
+| App won't open | Try running as Administrator or temporarily disable antivirus |
+
+---
 
 ## License
 
