@@ -7,8 +7,14 @@ release/
 out/
 data/
 
-# Release zip (upload manually to GitHub)
+# Temp folders (from zip scripts)
+Nova-Bot-*-Release/
+Nova-Bot-*-Source/
+temp_check/
+
+# Release zips (upload manually to GitHub Releases)
 Nova-Bot-*-Release.zip
+Nova-Bot-*-win.zip
 
 # Electron
 *.log
