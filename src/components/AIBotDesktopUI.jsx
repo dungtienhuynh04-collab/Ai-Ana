@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 
 export default function AIBotDesktopUI({
   settingValues = {},
@@ -25,6 +25,7 @@ export default function AIBotDesktopUI({
   hasElectronAPI = true,
   hasWebAPI = false,
 }) {
+  const chatInputRef = useRef(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
   const [activeSettingsSection, setActiveSettingsSection] = useState("general");
@@ -40,6 +41,13 @@ export default function AIBotDesktopUI({
   const [selectedMemoryIds, setSelectedMemoryIds] = useState(new Set());
   const [logEntries, setLogEntries] = useState([]);
   const [settingsSaved, setSettingsSaved] = useState(false);
+
+  // Auto-focus chat input after AI response completes
+  useEffect(() => {
+    if (!isLoading && activeTab === "chat") {
+      chatInputRef.current?.focus();
+    }
+  }, [isLoading, activeTab]);
 
   useEffect(() => {
     const w = Number(settingValues["Avatar Panel Width"]);
@@ -423,6 +431,7 @@ export default function AIBotDesktopUI({
                   <div className={`border-t p-5 ${isLightTheme ? "border-black/10" : "border-white/10"}`}>
                     <div className={`flex items-end gap-3 p-3 ${uiStyle.border} ${uiStyle.card} ${theme.input}`}>
                       <textarea
+                        ref={chatInputRef}
                         value={inputText}
                         onChange={(e) => onInputChange(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSendMessage(); } }}
