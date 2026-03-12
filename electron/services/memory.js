@@ -61,9 +61,10 @@ export const memoryService = {
     }));
   },
 
-  searchMulti(keywords, limit = 10) {
+  searchMulti(keywords, limit = 10, retrievalMode = "Balanced") {
     if (!db || !keywords?.length) return [];
     const seen = new Map(); // id -> { row, matchCount }
+    
     for (const kw of keywords) {
       if (!kw || kw.length < 2) continue;
       const q = `%${kw}%`;
@@ -78,7 +79,24 @@ export const memoryService = {
         }
       }
     }
+
+    // Determine threshold based on retrieval mode
+    const totalKeywords = keywords.length;
+    let minMatchRequired = 1;
+
+    if (retrievalMode === "Precise") {
+      // Require at least 50% of keywords to match, or minimum 2 if there are many keywords
+      minMatchRequired = Math.max(1, Math.ceil(totalKeywords * 0.5));
+    } else if (retrievalMode === "Aggressive") {
+      // Any single match is fine
+      minMatchRequired = 1;
+    } else {
+      // Balanced: If there are 3+ keywords, require at least 2 matches
+      minMatchRequired = totalKeywords >= 3 ? 2 : 1;
+    }
+
     return [...seen.values()]
+      .filter(e => e.matchCount >= minMatchRequired)
       .sort((a, b) => b.matchCount - a.matchCount || b.row.id - a.row.id)
       .slice(0, limit)
       .map((e) => e.row);

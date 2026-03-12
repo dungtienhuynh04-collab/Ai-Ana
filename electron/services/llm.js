@@ -114,6 +114,12 @@ User message: "${userText}"`;
       logService.info("Auto-Learning", `Model returned: "${extractedFact}"`);
       
       if (extractedFact && extractedFact !== "NONE" && !extractedFact.toLowerCase().includes("none")) {
+        const autoSaveMode = settings["Auto Save Memories"] || "Review First";
+        if (autoSaveMode === "Off") {
+          logService.info("Auto-Learning", `Skipped saving memory (Auto Save is Off)`);
+          return;
+        }
+        // Note: For "Review First", we currently save it directly but could add a UI prompt later.
         logService.info("Auto-Learning", `Extracted new memory: ${extractedFact}`);
         memoryService.add({
           user: "User",
@@ -139,10 +145,18 @@ User message: "${userText}"`;
     if (lastUserMsg && lastUserMsg.content) {
       const keywords = extractKeywords(lastUserMsg.content);
       if (keywords.length > 0) {
-        const relevantMemories = memoryService.searchMulti(keywords, 3); // Get top 3
-        if (relevantMemories && relevantMemories.length > 0) {
-          memoryContext = relevantMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
-          logService.info("RAG", `Found ${relevantMemories.length} relevant memories for context`);
+        const maxMemories = parseInt(settings["Max Memory Count"] || "3", 10);
+        const minScore = parseFloat(settings["Min Memory Score"] || "0.5");
+        const retrievalMode = settings["Memory Retrieval"] || "Balanced";
+        
+        const relevantMemories = memoryService.searchMulti(keywords, maxMemories, retrievalMode);
+        
+        // Filter by score if your memory service supports it (currently mock score is used)
+        const filteredMemories = relevantMemories.filter(m => (m.score || 0) >= minScore);
+
+        if (filteredMemories && filteredMemories.length > 0) {
+          memoryContext = filteredMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
+          logService.info("RAG", `Found ${filteredMemories.length} relevant memories for context (Mode: ${retrievalMode})`);
         }
       }
     }
@@ -190,10 +204,18 @@ User message: "${userText}"`;
     if (lastUserMsg && lastUserMsg.content) {
       const keywords = extractKeywords(lastUserMsg.content);
       if (keywords.length > 0) {
-        const relevantMemories = memoryService.searchMulti(keywords, 3); // Get top 3
-        if (relevantMemories && relevantMemories.length > 0) {
-          memoryContext = relevantMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
-          logService.info("RAG", `Found ${relevantMemories.length} relevant memories for context`);
+        const maxMemories = parseInt(settings["Max Memory Count"] || "3", 10);
+        const minScore = parseFloat(settings["Min Memory Score"] || "0.5");
+        const retrievalMode = settings["Memory Retrieval"] || "Balanced";
+        
+        const relevantMemories = memoryService.searchMulti(keywords, maxMemories, retrievalMode);
+        
+        // Filter by score if your memory service supports it (currently mock score is used)
+        const filteredMemories = relevantMemories.filter(m => (m.score || 0) >= minScore);
+
+        if (filteredMemories && filteredMemories.length > 0) {
+          memoryContext = filteredMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
+          logService.info("RAG", `Found ${filteredMemories.length} relevant memories for context (Mode: ${retrievalMode})`);
         }
       }
     }

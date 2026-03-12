@@ -175,6 +175,8 @@ export default function AIBotDesktopUI({
           { name: "Memory Provider", value: "Local Vector Store", hint: "Storage backend", type: "select", options: ["Local Vector Store", "SQLite"] },
           { name: "Auto Save Memories", value: "Review First", hint: "Approval mode", type: "select", options: ["Off", "Always", "Review First"] },
           { name: "Memory Retrieval", value: "Balanced", hint: "Recall aggressiveness", type: "select", options: ["Precise", "Balanced", "Aggressive"] },
+          { name: "Min Memory Score", value: "0.8", hint: "Minimum confidence score (0.0 - 1.0)", type: "slider", min: 0, max: 1 },
+          { name: "Max Memory Count", value: "3", hint: "Max memories to retrieve", type: "slider", min: 1, max: 100 },
           { name: "Edit Long-Term Memory", value: "Open memory database", hint: "Review saved memory records", type: "action", buttonLabel: "Edit Memory" },
         ],
       },

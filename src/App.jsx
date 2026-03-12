@@ -23,6 +23,8 @@ const DEFAULT_SETTINGS = {
   "Max Output Tokens": "4096",
   "Context Window": "32768",
   "System Prompt": "You are a helpful AI assistant. Adapt to the user's needs.",
+  "Min Memory Score": "0.8",
+  "Max Memory Count": "3",
   Streaming: "Enabled",
 };
 
