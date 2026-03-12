@@ -7,6 +7,10 @@ export default defineConfig({
   base: "./",
   server: {
     port: 5173,
+    headers: {
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "Cross-Origin-Embedder-Policy": "unsafe-none",
+    },
     proxy: {
       "/api": "http://localhost:3001",
     },

@@ -22,13 +22,13 @@ A local AI desktop assistant powered by **LM Studio** or **Ollama**. Everything 
 ### Step 1: Download
 
 1. Go to [Releases](https://github.com/dungtienhuynh04-collab/Ai-Ana/releases)
-2. Download **Nova Bot-1.0.0-win.zip** (portable, no installation required)
+2. Download **Nova Bot-1.0.0-win.zip**
 
-### Step 2: Extract and run
+### Step 2: Chạy app
 
-1. Extract the zip file (right-click → **Extract All**)
-2. Open the extracted folder
-3. Double-click **Nova Bot.exe** to run
+1. Giải nén zip (right-click → **Extract All**)
+2. Mở thư mục đã giải nén
+3. Double-click **Nova Bot.exe**
 
 **Note:** No Node.js or other software needed. Windows 10/11 (64-bit) only.
 
@@ -70,6 +70,24 @@ Click **Chat** and type your message. The AI will respond using the model you lo
 
 ---
 
+## Chạy trong Cursor (test)
+
+Cursor chặn localhost trong embedded browser. Có 2 cách xem trong Cursor:
+
+### Cách 1: Tunnel (xem trong Cursor)
+```bash
+npm run dev:tunnel
+```
+Chờ vài giây, terminal sẽ hiện URL dạng `https://xxx.loca.lt`. Mở URL này trong **Browser: Open Integrated Browser** — vì không phải localhost nên Cursor cho phép.
+
+### Cách 2: Trình duyệt ngoài
+`Ctrl+Shift+P` → **Run Task** → **Start Nova Bot (Web)** → mở trình duyệt tại `http://localhost:5173`
+
+### Electron
+`Ctrl+Shift+P` → **Run Task** → **Start Nova Bot (Electron)**
+
+---
+
 ## For developers (Build from source)
 
 Requires Node.js 18+ and npm.
@@ -79,9 +97,9 @@ npm install
 npm run dist
 ```
 
-Output: `release/Nova Bot-1.0.0-win.zip` – package for uploading to Releases.
+Output: `release-out/Nova Bot-1.0.0-win.zip` — upload lên GitHub Releases. Giải nén rồi chạy Nova Bot.exe.
 
-**Note:** Close Nova Bot before running `npm run dist`.
+`npm run dist` tự động đóng Nova Bot trước khi build.
 
 ---
 

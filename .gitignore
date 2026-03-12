@@ -4,17 +4,11 @@ node_modules/
 # Build output
 dist/
 release/
+release-build/
+release-out/
 out/
 data/
 
-# Temp folders (from zip scripts)
-Nova-Bot-*-Release/
-Nova-Bot-*-Source/
-temp_check/
-
-# Release zips (upload manually to GitHub Releases)
-Nova-Bot-*-Release.zip
-Nova-Bot-*-win.zip
 
 # Electron
 *.log

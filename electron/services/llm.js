@@ -47,10 +47,10 @@ export const llmService = {
     }
   },
 
-  _prepareMessages(messages, settings) {
-    const systemContent = (settings["System Prompt"] || "").trim() || DEFAULT_SYSTEM_PROMPT;
-    const contextWindow = parseInt(settings["Context Window"] || "32768", 10);
-    const maxTokens = parseInt(settings["Max Output Tokens"] || "4096", 10);
+  _prepareMessages(messages, settings, options = {}) {
+    const systemContent = options.systemPrompt || (settings["System Prompt"] || "").trim() || DEFAULT_SYSTEM_PROMPT;
+    const contextWindow = parseInt(options.contextWindow || settings["Context Window"] || "32768", 10);
+    const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
     const inputBudget = Math.max(1024, (contextWindow - maxTokens) * CHARS_PER_TOKEN);
 
     const systemMsg = { role: "system", content: systemContent };
@@ -63,16 +63,18 @@ export const llmService = {
       out.unshift(m);
       budget -= len;
     }
-    return [systemMsg, ...out];
+    const finalMsgs = [systemMsg, ...out];
+    logService.info("Context", `System: "${systemMsg.content.substring(0, 50)}..."`);
+    return finalMsgs;
   },
 
   async chat(messages, options = {}) {
     const settings = settingsService.getAll();
     const model = options.model || settings["Model Name"] || "local-model";
-    const temperature = parseFloat(settings.Temperature || "0.7");
-    const maxTokens = parseInt(settings["Max Output Tokens"] || "4096", 10);
-    const topP = parseFloat(settings["Top P"] || "0.95");
-    const prepared = this._prepareMessages(messages, settings);
+    const temperature = parseFloat(options.temperature ?? settings.Temperature ?? "0.7");
+    const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
+    const topP = parseFloat(options.topP ?? settings["Top P"] ?? "0.95");
+    const prepared = this._prepareMessages(messages, settings, options);
 
     logService.info("Request", `model=${model} messages=${prepared.length} ctx=${settings["Context Window"] || "32768"}`);
     try {
@@ -95,13 +97,14 @@ export const llmService = {
   },
 
   async chatStream(messages, options, mainWindow) {
+    options = options || {};
     const settings = settingsService.getAll();
     const model = options.model || settings["Model Name"] || "local-model";
-    const temperature = parseFloat(settings.Temperature || "0.7");
-    const maxTokens = parseInt(settings["Max Output Tokens"] || "4096", 10);
-    const topP = parseFloat(settings["Top P"] || "0.95");
+    const temperature = parseFloat(options.temperature ?? settings.Temperature ?? "0.7");
+    const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
+    const topP = parseFloat(options.topP ?? settings["Top P"] ?? "0.95");
     const streamEnabled = settings.Streaming === "Enabled";
-    const prepared = this._prepareMessages(messages, settings);
+    const prepared = this._prepareMessages(messages, settings, options);
 
     logService.info("Request", `stream=${streamEnabled} model=${model} messages=${prepared.length}`);
 

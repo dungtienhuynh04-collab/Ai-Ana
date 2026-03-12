@@ -179,12 +179,21 @@ export default function App() {
       electronApi?.removeChatListeners?.();
     };
 
+    const llmOptions = {
+      systemPrompt: settingValues["System Prompt"],
+      temperature: settingValues["Temperature"],
+      maxTokens: settingValues["Max Output Tokens"],
+      topP: settingValues["Top P"],
+      contextWindow: settingValues["Context Window"]
+    };
+    console.log("[DEBUG] Sending systemPrompt:", llmOptions.systemPrompt);
+
     if (electronApi?.chatStream) {
       electronApi.removeChatListeners?.();
       electronApi.onChatChunk?.(chunkHandler);
       electronApi.onChatDone?.(doneHandler);
       try {
-        await electronApi.chatStream(allMessages);
+        await electronApi.chatStream(allMessages, llmOptions);
       } catch (err) {
         setMessages((m) => {
           const copy = [...m];
@@ -197,7 +206,7 @@ export default function App() {
       }
     } else if (api.chatStream) {
       try {
-        await api.chatStream(allMessages, {}, chunkHandler, doneHandler);
+        await api.chatStream(allMessages, llmOptions, chunkHandler, doneHandler);
       } catch (err) {
         setMessages((m) => {
           const copy = [...m];
@@ -209,7 +218,7 @@ export default function App() {
       }
     } else {
       try {
-        const res = await api.chat?.(allMessages) ?? "Backend not running. Run: npm run dev:web";
+        const res = await api.chat?.(allMessages, llmOptions) ?? "Backend not running. Run: npm run dev:web";
         setMessages((m) => {
           const copy = [...m];
           const last = copy[copy.length - 1];
@@ -226,7 +235,7 @@ export default function App() {
       }
       setIsLoading(false);
     }
-  }, [inputText, isLoading, messages, activeChatId]);
+  }, [inputText, isLoading, messages, activeChatId, settingValues]);
 
   const handleMemoryAdd = useCallback((record) => {
     if (!api.memoryAdd) {

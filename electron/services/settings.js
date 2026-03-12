@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
   "Max Output Tokens": "4096",
   "Context Window": "32768",
   "System Prompt": "You are a helpful AI assistant. Adapt to the user's needs.",
+  "System Prompts": "[]",
   Streaming: "Enabled",
   "STT Provider": "Local / Whisper",
   "STT Model": "faster-whisper-large-v3",
@@ -53,18 +54,22 @@ function getSettingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
 }
 
+function _loadFromDisk() {
+  try {
+    const p = getSettingsPath();
+    if (fs.existsSync(p)) {
+      const data = fs.readFileSync(p, "utf-8");
+      const loaded = JSON.parse(data);
+      settings = { ...DEFAULT_SETTINGS, ...loaded };
+    }
+  } catch (e) {
+    console.error("Settings load error:", e);
+  }
+}
+
 export const settingsService = {
   init() {
-    try {
-      const p = getSettingsPath();
-      if (fs.existsSync(p)) {
-        const data = fs.readFileSync(p, "utf-8");
-        const loaded = JSON.parse(data);
-        settings = { ...DEFAULT_SETTINGS, ...loaded };
-      }
-    } catch (e) {
-      console.error("Settings load error:", e);
-    }
+    _loadFromDisk();
   },
 
   _save() {
@@ -76,6 +81,8 @@ export const settingsService = {
   },
 
   getAll() {
+    // Always re-read from disk to ensure fresh data
+    _loadFromDisk();
     return { ...settings };
   },
 

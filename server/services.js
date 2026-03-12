@@ -172,10 +172,10 @@ function getClient() {
   return new OpenAI({ baseURL, apiKey: "lm-studio" });
 }
 
-function prepareMessages(messages, s) {
-  const systemContent = (s["System Prompt"] || "").trim() || DEFAULT_SYSTEM_PROMPT;
-  const contextWindow = parseInt(s["Context Window"] || "32768", 10);
-  const maxTokens = parseInt(s["Max Output Tokens"] || "4096", 10);
+function prepareMessages(messages, s, options = {}) {
+  const systemContent = options.systemPrompt || (s["System Prompt"] || "").trim() || DEFAULT_SYSTEM_PROMPT;
+  const contextWindow = parseInt(options.contextWindow || s["Context Window"] || "32768", 10);
+  const maxTokens = parseInt(options.maxTokens || s["Max Output Tokens"] || "4096", 10);
   const inputBudget = Math.max(1024, (contextWindow - maxTokens) * CHARS_PER_TOKEN);
 
   const systemMsg = { role: "system", content: systemContent };
@@ -195,10 +195,10 @@ export const llmService = {
   async chat(messages, options = {}) {
     const s = settingsService.getAll();
     const model = options.model || s["Model Name"] || "local-model";
-    const temp = parseFloat(s.Temperature || "0.7");
-    const maxTok = parseInt(s["Max Output Tokens"] || "4096", 10);
-    const topP = parseFloat(s["Top P"] || "0.95");
-    const prepared = prepareMessages(messages, s);
+    const temp = parseFloat(options.temperature ?? s.Temperature ?? "0.7");
+    const maxTok = parseInt(options.maxTokens || s["Max Output Tokens"] || "4096", 10);
+    const topP = parseFloat(options.topP ?? s["Top P"] ?? "0.95");
+    const prepared = prepareMessages(messages, s, options);
 
     logService.info("Request", `model=${model} messages=${prepared.length} ctx=${s["Context Window"] || "32768"}`);
     try {
@@ -223,10 +223,10 @@ export const llmService = {
   async chatStream(messages, options, onChunk, onDone) {
     const s = settingsService.getAll();
     const model = options.model || s["Model Name"] || "local-model";
-    const temp = parseFloat(s.Temperature || "0.7");
-    const maxTok = parseInt(s["Max Output Tokens"] || "4096", 10);
-    const topP = parseFloat(s["Top P"] || "0.95");
-    const prepared = prepareMessages(messages, s);
+    const temp = parseFloat(options.temperature ?? s.Temperature ?? "0.7");
+    const maxTok = parseInt(options.maxTokens || s["Max Output Tokens"] || "4096", 10);
+    const topP = parseFloat(options.topP ?? s["Top P"] ?? "0.95");
+    const prepared = prepareMessages(messages, s, options);
 
     logService.info("Request", `stream model=${model} messages=${prepared.length}`);
     try {

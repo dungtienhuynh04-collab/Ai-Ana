@@ -35,6 +35,7 @@ export default function AIBotDesktopUI({
   const [memoryEditorOpen, setMemoryEditorOpen] = useState(false);
   const [systemPromptEditorOpen, setSystemPromptEditorOpen] = useState(false);
   const [systemPromptDraft, setSystemPromptDraft] = useState("");
+  const [promptNameDraft, setPromptNameDraft] = useState("");
   const [screenCaptureSettingsOpen, setScreenCaptureSettingsOpen] = useState(false);
   const [selectedMemoryIds, setSelectedMemoryIds] = useState(new Set());
   const [logEntries, setLogEntries] = useState([]);
@@ -59,8 +60,34 @@ export default function AIBotDesktopUI({
   }, [activeTab, hasElectronAPI, hasWebAPI, onGetLogs]);
 
   useEffect(() => {
-    if (systemPromptEditorOpen) setSystemPromptDraft(settingValues["System Prompt"] ?? "You are a helpful AI assistant.");
+    if (systemPromptEditorOpen) {
+      setSystemPromptDraft(settingValues["System Prompt"] ?? "You are a helpful AI assistant.");
+      setPromptNameDraft("");
+    }
   }, [systemPromptEditorOpen, settingValues["System Prompt"]]);
+
+  const customPrompts = useMemo(() => {
+    try {
+      return JSON.parse(settingValues["System Prompts"] || "[]");
+    } catch {
+      return [];
+    }
+  }, [settingValues["System Prompts"]]);
+
+  const savePromptToLibrary = () => {
+    const name = promptNameDraft.trim() || "Untitled Prompt";
+    const text = systemPromptDraft.trim();
+    if (!text) return;
+    const newPrompts = [...customPrompts, { id: Date.now().toString(), name, content: text }];
+    handleSettingChange("System Prompts", JSON.stringify(newPrompts));
+    handleSettingChange("System Prompt", text);
+    setPromptNameDraft("");
+  };
+
+  const deletePromptFromLibrary = (id) => {
+    const newPrompts = customPrompts.filter((p) => p.id !== id);
+    handleSettingChange("System Prompts", JSON.stringify(newPrompts));
+  };
 
   const settingSections = useMemo(
     () => [
@@ -88,8 +115,6 @@ export default function AIBotDesktopUI({
         items: [
           { name: "Provider", value: "LM Studio", hint: "Choose runtime source", type: "select", options: ["LM Studio", "Local / Ollama", "OpenAI API", "Anthropic API"] },
           { name: "Endpoint", value: "http://localhost:1234", hint: "LM Studio: localhost:1234 | Ollama: localhost:11434", type: "input" },
-          { name: "Model Name", value: "local-model", hint: "Exact model name from LM Studio (e.g. llama-3.1-8b)", type: "input" },
-          { name: "Fallback Model", value: "llama3.1:8b", hint: "Used when primary fails", type: "select", options: ["None", "llama3.1:8b", "qwen2.5:7b", "gemma3:12b"] },
           { name: "Auto Connect", value: "Enabled", hint: "Reconnect on app launch", type: "toggle" },
         ],
       },
@@ -280,13 +305,13 @@ export default function AIBotDesktopUI({
   };
 
   return (
-    <div className={`min-h-screen w-full min-w-0 overflow-x-hidden p-4 ${theme.app}`}>
+    <div className={`h-screen w-full flex flex-col overflow-hidden p-4 ${theme.app}`}>
       {hasWebAPI && (
-        <div className="mb-4 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-cyan-200 text-sm">
+        <div className="mb-4 shrink-0 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-cyan-200 text-sm">
           Web mode. Run <code className="rounded bg-black/30 px-1">npm run dev:web</code> to start backend + frontend.
         </div>
       )}
-      <div className={`mx-auto h-[calc(100vh-2rem)] w-full max-w-full min-w-0 overflow-hidden ${uiStyle.border} ${uiStyle.shell} ${theme.shell} shadow-2xl backdrop-blur ${accentGlow}`}>
+      <div className={`mx-auto flex-1 w-full max-w-full min-w-0 overflow-hidden ${uiStyle.border} ${uiStyle.shell} ${theme.shell} shadow-2xl backdrop-blur ${accentGlow}`}>
         <div className="relative h-full min-w-0 overflow-hidden">
           {sidebarCollapsed && (
             <button onClick={() => setSidebarCollapsed(false)} className={`absolute left-4 top-4 z-20 flex h-11 w-11 items-center justify-center ${uiStyle.border} ${uiStyle.button} ${theme.input} text-sm shadow-lg transition hover:opacity-90`} title="Open sidebar" aria-label="Open sidebar">
@@ -530,29 +555,74 @@ export default function AIBotDesktopUI({
 
           {systemPromptEditorOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: isLightTheme ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.85)" }} onClick={(e) => e.target === e.currentTarget && setSystemPromptEditorOpen(false)}>
-              <div className={`flex h-[min(96vh,960px)] w-[min(98vw,900px)] flex-col overflow-hidden rounded-2xl border shadow-2xl ${isLightTheme ? "border-neutral-200 bg-white" : "border-violet-500/30 bg-zinc-900"}`} onClick={(e) => e.stopPropagation()}>
+              <div className={`flex h-[min(96vh,960px)] w-[min(98vw,1100px)] flex-col overflow-hidden rounded-2xl border shadow-2xl ${isLightTheme ? "border-neutral-200 bg-white" : "border-violet-500/30 bg-zinc-900"}`} onClick={(e) => e.stopPropagation()}>
                 <div className={`flex shrink-0 items-center justify-between border-b px-6 py-4 ${isLightTheme ? "border-neutral-200 bg-neutral-50" : "border-zinc-700/50 bg-zinc-800/80"}`}>
                   <div>
                     <p className={`text-xs font-medium uppercase tracking-wider ${isLightTheme ? "text-neutral-500" : "text-zinc-400"}`}>LLM</p>
-                    <h3 className={`mt-1 text-lg font-semibold ${isLightTheme ? "text-neutral-900" : "text-white"}`}>System Prompt</h3>
+                    <h3 className={`mt-1 text-lg font-semibold ${isLightTheme ? "text-neutral-900" : "text-white"}`}>System Prompt Library</h3>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => { handleSettingChange("System Prompt", systemPromptDraft); setSystemPromptEditorOpen(false); }} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500">Save</button>
-                    <button onClick={() => setSystemPromptEditorOpen(false)} className={`rounded-lg px-4 py-2 text-sm font-medium transition hover:opacity-90 ${isLightTheme ? "bg-neutral-200 text-neutral-700 hover:bg-neutral-300" : "bg-zinc-700 text-zinc-200 hover:bg-zinc-600"}`}>Close</button>
+                    <button onClick={() => { handleSettingChange("System Prompt", systemPromptDraft); setSystemPromptEditorOpen(false); }} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500">Set as Active & Close</button>
+                    <button onClick={() => setSystemPromptEditorOpen(false)} className={`rounded-lg px-4 py-2 text-sm font-medium transition hover:opacity-90 ${isLightTheme ? "bg-neutral-200 text-neutral-700 hover:bg-neutral-300" : "bg-zinc-700 text-zinc-200 hover:bg-zinc-600"}`}>Cancel</button>
                   </div>
                 </div>
-                <div className={`flex shrink-0 flex-wrap gap-2 border-b px-6 py-3 ${isLightTheme ? "border-neutral-200 bg-white" : "border-zinc-700/50 bg-zinc-900"}`}>
-                  {["Default", "Coder", "Creative", "Assistant"].map((label) => {
-                    const presets = { Default: "You are a helpful AI assistant.", Coder: "You are an expert programmer. Help with code, debugging, architecture, and technical questions. Be precise and include examples when useful.", Creative: "You are a creative assistant. Help with writing, stories, ideas, and brainstorming. Be imaginative and engaging.", Assistant: "You are a helpful desktop assistant. Be concise, practical, and focused on getting things done." };
-                    return (
-                      <button key={label} type="button" onClick={() => setSystemPromptDraft(presets[label])} className={`rounded-lg px-3 py-2 text-xs font-medium transition hover:opacity-90 ${isLightTheme ? "border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50" : "border border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}>
-                        {label}
+                
+                <div className="flex min-h-0 flex-1">
+                  {/* Left Sidebar: Library */}
+                  <div className={`flex w-72 flex-col border-r ${isLightTheme ? "border-neutral-200 bg-neutral-50" : "border-zinc-700/50 bg-zinc-800/30"}`}>
+                    <div className={`p-4 border-b ${isLightTheme ? "border-neutral-200" : "border-zinc-700/50"}`}>
+                      <p className={`text-xs font-semibold uppercase tracking-wider ${textSub}`}>System Presets</p>
+                      <div className="mt-3 flex flex-col gap-1">
+                        {["Default", "Coder", "Creative", "Assistant"].map((label) => {
+                          const presets = { Default: "You are a helpful AI assistant.", Coder: "You are an expert programmer. Help with code, debugging, architecture, and technical questions. Be precise and include examples when useful.", Creative: "You are a creative assistant. Help with writing, stories, ideas, and brainstorming. Be imaginative and engaging.", Assistant: "You are a helpful desktop assistant. Be concise, practical, and focused on getting things done." };
+                          return (
+                            <button key={label} type="button" onClick={() => {setPromptNameDraft(""); setSystemPromptDraft(presets[label]);}} className={`truncate rounded-lg px-3 py-2 text-left text-sm font-medium transition hover:opacity-90 ${isLightTheme ? "text-neutral-700 hover:bg-neutral-200/50" : "text-zinc-200 hover:bg-zinc-700/50"}`}>
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    
+                    <div className="flex min-h-0 flex-1 flex-col p-4">
+                      <p className={`text-xs font-semibold uppercase tracking-wider ${textSub}`}>Custom Prompts</p>
+                      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
+                        {customPrompts.length === 0 ? (
+                          <p className={`text-xs italic ${textSub}`}>No custom prompts saved.</p>
+                        ) : (
+                          customPrompts.map((p) => (
+                            <div key={p.id} className={`group flex items-center justify-between rounded-lg px-3 py-2 transition ${isLightTheme ? "hover:bg-neutral-200/50" : "hover:bg-zinc-700/50"}`}>
+                              <button onClick={() => {setPromptNameDraft(p.name); setSystemPromptDraft(p.content);}} className={`truncate text-left text-sm font-medium ${textMain}`}>
+                                {p.name}
+                              </button>
+                              <button onClick={() => deletePromptFromLibrary(p.id)} className={`text-xs opacity-0 transition group-hover:opacity-100 ${isLightTheme ? "text-red-500 hover:text-red-700" : "text-red-400 hover:text-red-300"}`} title="Delete">
+                                ×
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Content: Editor */}
+                  <div className="flex min-h-0 flex-1 flex-col p-6">
+                    <div className="mb-4 flex gap-3">
+                      <input 
+                        value={promptNameDraft} 
+                        onChange={(e) => setPromptNameDraft(e.target.value)} 
+                        placeholder="Name this prompt (e.g., Code Reviewer)" 
+                        className={`flex-1 rounded-xl px-4 py-2 text-sm outline-none ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 placeholder:text-neutral-400 focus:border-violet-400 focus:ring-1 focus:ring-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"}`} 
+                      />
+                      <button 
+                        onClick={savePromptToLibrary} 
+                        disabled={!systemPromptDraft.trim()}
+                        className={`rounded-xl px-4 py-2 text-sm font-medium transition disabled:opacity-50 ${isLightTheme ? "border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50" : "border border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}>
+                        Save to Library
                       </button>
-                    );
-                  })}
-                </div>
-                <div className="flex min-h-0 flex-1 flex-col p-6">
-                  <textarea value={systemPromptDraft} onChange={(e) => setSystemPromptDraft(e.target.value)} placeholder="Enter system prompt..." className={`h-full min-h-[200px] w-full resize-none rounded-xl px-4 py-3 text-sm outline-none ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 placeholder:text-neutral-400 focus:border-violet-400 focus:ring-1 focus:ring-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"}`} />
+                    </div>
+                    <textarea value={systemPromptDraft} onChange={(e) => setSystemPromptDraft(e.target.value)} placeholder="Enter system prompt instructions here..." className={`h-full w-full resize-none rounded-xl px-4 py-4 text-sm outline-none ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 placeholder:text-neutral-400 focus:border-violet-400 focus:ring-1 focus:ring-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"}`} />
+                  </div>
                 </div>
               </div>
             </div>
