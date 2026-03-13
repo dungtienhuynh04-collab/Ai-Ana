@@ -235,9 +235,18 @@ export default function App() {
       return;
     }
 
-    setInputText("");
+    const personaId = settingValues["Active Persona ID"];
+    let personaName = null;
+    if (personaId) {
+      try {
+        const personas = JSON.parse(settingValues.Personas || "[]");
+        personaName = personas.find(p => p.id === personaId)?.name;
+      } catch (e) {}
+    }
+
     const userMsg = { role: "user", content: text };
-    const newMsgs = [...messages, userMsg, { role: "assistant", content: "" }];
+    const assistantMsg = { role: "assistant", content: "", personaName };
+    const newMsgs = [...messages, userMsg, assistantMsg];
 
     setChats((prev) => {
       const next = prev.map((c) => {

@@ -435,14 +435,32 @@ export default function AIBotDesktopUI({
                       <div className="min-h-0 flex-1 overflow-y-auto">
                         <div className="space-y-2">
                           {(Array.isArray(chats) ? chats : []).map((chat) => {
-                            const c = typeof chat === "string" ? { id: chat, title: chat } : chat;
+                            const c = typeof chat === "string" ? { id: chat, title: chat, messages: [] } : chat;
                             const isActive = c.id === activeChatId;
+                            
+                            // Extract unique persona names from assistant messages
+                            const usedPersonas = Array.from(new Set((c.messages || [])
+                              .filter(m => m.role === "assistant" && m.personaName)
+                              .map(m => m.personaName)
+                            ));
+
                             return (
-                              <div key={c.id} className={`group flex items-center gap-1 ${uiStyle.button}`}>
-                                <button onClick={() => onSelectChat(c.id)} className={`min-w-0 flex-1 px-4 py-3 text-left text-sm transition ${isActive ? (isLightTheme ? "bg-black/10 text-neutral-900" : "bg-white/12 text-white") : `${sidebarTextMuted} hover:bg-white/8 hover:text-inherit`} ${uiStyle.title}`}>
-                                  <span className="block truncate">{c.title || "Untitled"}</span>
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); onDeleteChat(c.id); }} className={`shrink-0 px-2 py-2 text-xs opacity-0 transition hover:opacity-100 group-hover:opacity-70 ${isLightTheme ? "text-neutral-500 hover:text-red-600" : "text-white/50 hover:text-red-400"}`} title="Delete chat">×</button>
+                              <div key={c.id} className={`group flex flex-col gap-1 ${uiStyle.button}`}>
+                                <div className="flex items-center gap-1">
+                                  <button onClick={() => onSelectChat(c.id)} className={`min-w-0 flex-1 px-4 py-3 text-left text-sm transition ${isActive ? (isLightTheme ? "bg-black/10 text-neutral-900" : "bg-white/12 text-white") : `${sidebarTextMuted} hover:bg-white/8 hover:text-inherit`} ${uiStyle.title}`}>
+                                    <span className="block truncate">{c.title || "Untitled"}</span>
+                                    {usedPersonas.length > 0 && (
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {usedPersonas.map(name => (
+                                          <span key={name} className={`rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${isActive ? (isLightTheme ? "bg-black/20 text-black" : "bg-white/20 text-white") : "bg-black/10 text-neutral-500"}`}>
+                                            {name}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </button>
+                                  <button onClick={(e) => { e.stopPropagation(); onDeleteChat(c.id); }} className={`shrink-0 px-2 py-2 text-xs opacity-0 transition hover:opacity-100 group-hover:opacity-70 ${isLightTheme ? "text-neutral-500 hover:text-red-600" : "text-white/50 hover:text-red-400"}`} title="Delete chat">×</button>
+                                </div>
                               </div>
                             );
                           })}
