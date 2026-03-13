@@ -135,36 +135,52 @@ export const llmService = {
     if (!text) return null;
     const settings = settingsService.getAll();
     const model = settings["Embedding Model Name"] || "nomic-embed-text";
+    const embedEndpoint = settings["Embedding Endpoint"];
 
     try {
-      let client = getClient();
-      const embedEndpoint = settings["Embedding Endpoint"];
-      let usedEndpoint = client.baseURL;
-
-      // Use a different client if a specific embedding endpoint is provided
-      if (embedEndpoint && embedEndpoint.trim() !== "") {
-        let baseURL = embedEndpoint.trim();
-        if (settings.Provider === "LM Studio" && !baseURL.endsWith("/v1")) {
-          baseURL = baseURL.replace(/\/?$/, "/v1");
-        }
-        client = new OpenAI({ baseURL, apiKey: "lm-studio" });
-        usedEndpoint = baseURL;
+      let baseURL = (embedEndpoint || "").trim();
+      if (!baseURL) {
+        baseURL = (settings.Endpoint || "http://localhost:1234").replace(/\/?$/, "");
+      }
+      
+      // Ensure it ends with /v1/embeddings
+      let url = baseURL;
+      if (!url.includes("/embeddings")) {
+        url = url.replace(/\/v1\/?$/, ""); // strip existing /v1
+        url = `${url}/v1/embeddings`;
       }
 
       if (!silent) {
-        logService.info("Embedding", `Requesting vector. Model: ${model}, Endpoint: ${usedEndpoint}`);
+        logService.info("Embedding", `Requesting vector via fetch. Model: ${model}, Endpoint: ${url}`);
       }
 
-      // Add a timeout to the embedding request so it doesn't hang forever
-      const res = await client.embeddings.create({
-        model,
-        input: text,
-      }, { timeout: 10000 }); // 10 second timeout
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, input: text }),
+        signal: AbortSignal.timeout(10000)
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}: ${await res.text()}`);
+      }
+
+      const json = await res.json();
+      const vector = json.data?.[0]?.embedding;
+      
+      if (!vector || !Array.isArray(vector)) {
+        throw new Error("Invalid response format (missing embedding array)");
+      }
+
+      const absSum = vector.reduce((a, b) => a + Math.abs(b), 0);
+      if (absSum === 0) {
+        throw new Error("Received all-zero vector from server (check model status)");
+      }
 
       if (!silent) {
-        logService.info("Embedding", `Successfully received vector of length ${res.data[0]?.embedding?.length}`);
+        logService.info("Embedding", `Success: length=${vector.length}, weight=${absSum.toFixed(2)}`);
       }
-      return res.data[0]?.embedding;
+      return vector;
     } catch (e) {
       if (!silent) {
         logService.error("Embedding failed", e.message);
