@@ -45,14 +45,14 @@ function loadChats() {
         );
       }
     }
-  } catch (_) {}
+  } catch (_) { }
   return [DEFAULT_CHAT];
 }
 
 function saveChats(chats) {
   try {
     localStorage.setItem(CHATS_KEY, JSON.stringify(chats));
-  } catch (_) {}
+  } catch (_) { }
 }
 
 const electronApi = typeof window !== "undefined" && window.electronAPI ? window.electronAPI : null;
@@ -67,6 +67,8 @@ export default function App() {
   });
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [messageQueue, setMessageQueue] = useState([]);
+  const [availableModels, setAvailableModels] = useState([]);
 
   const activeChat = chats.find((c) => c.id === activeChatId) ?? chats[0];
   const messages = activeChat?.messages ?? [];
@@ -75,15 +77,68 @@ export default function App() {
   useEffect(() => {
     electronApi?.settingsGetAll?.().then((s) => {
       if (s && Object.keys(s).length) setSettingValues((prev) => ({ ...prev, ...s }));
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   // Load memory from backend
   useEffect(() => {
     electronApi?.memoryGetAll?.().then((rows) => {
       if (rows?.length) setMemoryRows(rows.map((r) => ({ ...r, selected: false })));
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
+
+  // Fetch models whenever Provider or Endpoint changes, with polling for LM Studio
+  useEffect(() => {
+    const fetchModels = () => {
+      if (electronApi?.listModels) {
+        electronApi.listModels().then(res => {
+          if (res.ok) setAvailableModels(res.models);
+        }).catch(() => { });
+      }
+    };
+
+    fetchModels();
+    
+    // Poll every 5s if LM Studio to pick up external changes
+    let interval;
+    if (settingValues.Provider === "LM Studio") {
+      interval = setInterval(fetchModels, 5000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [settingValues.Provider, settingValues.Endpoint]);
+
+  // Sync Context Window for LM Studio (uses native API data with loaded_context_length)
+  useEffect(() => {
+    if (settingValues.Provider === "LM Studio" && availableModels.length > 0) {
+      const currentModelId = settingValues["Model Name"];
+      
+      // Priority 1: Find the specific model by ID that is loaded
+      let target = availableModels.find(m => m.id === currentModelId && m.state === "loaded");
+      
+      // Priority 2: Any loaded LLM model (user may not have selected the right name yet)
+      if (!target) {
+        target = availableModels.find(m => m.state === "loaded" && m.type === "llm");
+      }
+      
+      // Priority 3: The model by ID regardless of state
+      if (!target) {
+        target = availableModels.find(m => m.id === currentModelId);
+      }
+
+      if (target) {
+        // Use loaded_context_length (actual runtime) > context_length (normalized) > max_context_length (model max)
+        const fetchedCtx = target.loaded_context_length || target.context_length || target.max_context_length;
+        if (fetchedCtx && String(fetchedCtx) !== settingValues["Context Window"]) {
+          console.log(`[Sync] Updating Context Window: ${settingValues["Context Window"]} -> ${fetchedCtx} (Source: ${target.id})`);
+          setSettingValues(prev => ({ ...prev, "Context Window": String(fetchedCtx) }));
+          electronApi?.settingsSet?.("Context Window", String(fetchedCtx)).catch(() => {});
+        }
+      }
+    }
+  }, [availableModels, settingValues.Provider, settingValues["Model Name"]]);
 
   const setMessages = useCallback(
     (updater) => {
@@ -130,24 +185,31 @@ export default function App() {
     });
   }, []);
 
-  const handleSettingChange = useCallback(
-    (name, value) => {
-      setSettingValues((prev) => {
-        const next = { ...prev, [name]: value };
-        electronApi?.settingsSet?.(name, value).catch(() => {});
-        return next;
-      });
-    },
-    []
-  );
+  const handleSettingChange = useCallback((name, value) => {
+    setSettingValues((prev) => {
+      const next = { ...prev, [name]: value };
+      
+      // Auto-sync logic moved to dedicated useEffect for robustness
+      
+      electronApi?.settingsSet?.(name, value).catch(() => {});
+      return next;
+    });
+  }, [availableModels]);
 
-  const handleSendMessage = useCallback(async () => {
-    const text = inputText.trim();
-    if (!text || isLoading) return;
+  const handleSendMessage = useCallback(async (msgText) => {
+    const text = (typeof msgText === "string" ? msgText : inputText).trim();
+    if (!text) return;
+
+    if (isLoading) {
+      setMessageQueue((prev) => [...prev, text]);
+      setInputText("");
+      return;
+    }
 
     setInputText("");
     const userMsg = { role: "user", content: text };
     const newMsgs = [...messages, userMsg, { role: "assistant", content: "" }];
+    
     setChats((prev) => {
       const next = prev.map((c) => {
         if (c.id !== activeChatId) return c;
@@ -175,9 +237,21 @@ export default function App() {
         return next;
       });
     };
+
     const doneHandler = () => {
       setIsLoading(false);
       electronApi?.removeChatListeners?.();
+      
+      // Handle queue
+      setMessageQueue((prev) => {
+        if (prev.length > 0) {
+          const [next, ...remaining] = prev;
+          // Trigger next message after a small delay to allow state update
+          setTimeout(() => handleSendMessage(next), 100);
+          return remaining;
+        }
+        return prev;
+      });
     };
 
     const llmOptions = {
@@ -185,7 +259,10 @@ export default function App() {
       temperature: settingValues["Temperature"],
       maxTokens: settingValues["Max Output Tokens"],
       topP: settingValues["Top P"],
-      contextWindow: settingValues["Context Window"]
+      contextWindow: settingValues["Context Window"],
+      presencePenalty: settingValues["Presence Penalty"],
+      frequencyPenalty: settingValues["Frequency Penalty"],
+      seed: settingValues["Seed"],
     };
 
 
@@ -206,15 +283,15 @@ export default function App() {
         electronApi.removeChatListeners?.();
       }
     } else {
-       setMessages((m) => {
-          const copy = [...m];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: "[Error: Electron API not found. Are you running in Electron?]" };
-          return copy;
-        });
-        setIsLoading(false);
+      setMessages((m) => {
+        const copy = [...m];
+        const last = copy[copy.length - 1];
+        if (last?.role === "assistant") copy[copy.length - 1] = { ...last, content: "[Error: Electron API not found. Are you running in Electron?]" };
+        return copy;
+      });
+      setIsLoading(false);
     }
-  }, [inputText, isLoading, messages, activeChatId, settingValues]);
+  }, [inputText, isLoading, messages, activeChatId, settingValues, setMessages]);
 
   const handleMemoryAdd = useCallback((record) => {
     if (electronApi?.memoryAdd) {
@@ -225,8 +302,8 @@ export default function App() {
         setMemoryRows((r) => [{ ...record, id: nextId }, ...r]);
       });
     } else {
-       const nextId = Math.max(0, ...memoryRows.map((r) => r.id || 0)) + 1;
-       setMemoryRows((r) => [{ ...record, id: nextId }, ...r]);
+      const nextId = Math.max(0, ...memoryRows.map((r) => r.id || 0)) + 1;
+      setMemoryRows((r) => [{ ...record, id: nextId }, ...r]);
     }
   }, [memoryRows]);
 
@@ -259,7 +336,7 @@ export default function App() {
 
   const handleSaveSettings = useCallback(() => {
     if (electronApi?.settingsSetBulk) {
-      electronApi.settingsSetBulk(settingValues).then(() => {}).catch(() => {});
+      electronApi.settingsSetBulk(settingValues).then(() => { }).catch(() => { });
       return true;
     }
     return false;
@@ -268,7 +345,7 @@ export default function App() {
   const handleGetLogs = useCallback(() => electronApi?.logGetAll?.() ?? Promise.resolve([]), []);
 
   const handleClearLogs = useCallback(() => {
-    electronApi?.logClear?.().catch(() => {});
+    electronApi?.logClear?.().catch(() => { });
   }, []);
 
   return (
@@ -297,6 +374,8 @@ export default function App() {
       onSelectChat={handleSelectChat}
       onDeleteChat={handleDeleteChat}
       onRenameChat={handleRenameChat}
+      availableModels={availableModels}
+      messageQueueCount={messageQueue.length}
     />
   );
 }

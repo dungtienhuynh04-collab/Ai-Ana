@@ -2,29 +2,31 @@ import { useMemo, useState, useEffect, useRef } from "react";
 
 export default function AIBotDesktopUI({
   settingValues = {},
-  onSettingChange = () => {},
+  onSettingChange = () => { },
   onSaveSettings = () => false,
   memoryRows = [],
-  onMemoryAdd = () => {},
-  onMemoryUpdate = () => {},
-  onMemoryDelete = () => {},
-  onMemoryDeleteMany = () => {},
-  onMemorySearch = () => {},
-  onOpenMemoryEditor = () => {},
+  onMemoryAdd = () => { },
+  onMemoryUpdate = () => { },
+  onMemoryDelete = () => { },
+  onMemoryDeleteMany = () => { },
+  onMemorySearch = () => { },
+  onOpenMemoryEditor = () => { },
   onGetLogs = () => Promise.resolve([]),
-  onClearLogs = () => {},
+  onClearLogs = () => { },
   messages = [],
   inputText = "",
-  onInputChange = () => {},
-  onSendMessage = () => {},
+  onInputChange = () => { },
+  onSendMessage = () => { },
   isLoading = false,
   chats = [],
   activeChatId = null,
-  onNewChat = () => {},
-  onSelectChat = () => {},
-  onDeleteChat = () => {},
-  onRenameChat = () => {},
+  onNewChat = () => { },
+  onSelectChat = () => { },
+  onDeleteChat = () => { },
+  onRenameChat = () => { },
   hasElectronAPI = true,
+  availableModels = [],
+  messageQueueCount = 0,
 }) {
   const chatInputRef = useRef(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -111,10 +113,10 @@ export default function AIBotDesktopUI({
           { name: "Accent Color", value: "Violet", hint: "Primary highlight color", type: "select", options: ["White", "Violet", "Blue", "Cyan", "Green", "Orange", "Rose"] },
           { name: "Sidebar Style", value: "Panel", hint: "Navigation presentation", type: "select", options: ["Panel", "Floating", "Compact Rail", "Blur Strip"] },
           { name: "Startup Page", value: "Last Session", hint: "Open on launch", type: "select", options: ["Last Session", "Chat", "Settings"] },
-          { name: "Notifications", value: "On", hint: "Desktop alerts", type: "toggle" },
-          { name: "Compact Mode", value: "Off", hint: "Dense layout", type: "toggle" },
-          { name: "Avatar Panel", value: settingValues["Avatar Panel"] ?? "On", hint: "Show avatar area (off = chat 100%)", type: "toggle" },
-          { name: "Avatar Panel Width", value: String(rightPanelWidth), hint: "Resize avatar area (30–70%)", type: "slider", min: 280, max: 680 },
+          { name: "Notifications", value: "On", hint: "Desktop alerts", type: "toggle", provider: settingValues.Provider },
+          { name: "Compact Mode", value: "Off", hint: "Dense layout", type: "toggle", provider: settingValues.Provider },
+          { name: "Avatar Panel", value: settingValues["Avatar Panel"] ?? "On", hint: "Show avatar area (off = chat 100%)", type: "toggle", provider: settingValues.Provider },
+          { name: "Avatar Panel Width", value: String(rightPanelWidth), hint: "Resize avatar area (30–70%)", type: "slider", min: 280, max: 680, provider: settingValues.Provider },
         ],
       },
       {
@@ -122,9 +124,9 @@ export default function AIBotDesktopUI({
         label: "Provider",
         description: "Connect cloud or local inference backends.",
         items: [
-          { name: "Provider", value: "LM Studio", hint: "Choose runtime source", type: "select", options: ["LM Studio", "Local / Ollama", "OpenAI API", "Anthropic API"] },
-          { name: "Endpoint", value: "http://localhost:1234", hint: "LM Studio: localhost:1234 | Ollama: localhost:11434", type: "input" },
-          { name: "Auto Connect", value: "Enabled", hint: "Reconnect on app launch", type: "toggle" },
+          { name: "Provider", value: settingValues.Provider || "LM Studio", hint: "Choose runtime source", type: "select", options: ["LM Studio", "Local / Ollama", "OpenAI API", "Anthropic API"], provider: settingValues.Provider },
+          { name: "Endpoint", value: settingValues.Endpoint || "http://localhost:1234", hint: "LM Studio: localhost:1234 | Ollama: localhost:11434", type: "input", provider: settingValues.Provider },
+          { name: "Auto Connect", value: "Enabled", hint: "Reconnect on app launch", type: "toggle", provider: settingValues.Provider },
         ],
       },
       {
@@ -132,12 +134,16 @@ export default function AIBotDesktopUI({
         label: "LLM",
         description: "Tune generation, context, and reasoning behavior.",
         items: [
-          { name: "Temperature", value: "0.7", hint: "Creativity level", type: "slider", min: 0, max: 2 },
-          { name: "Top P", value: "0.95", hint: "Probability mass", type: "slider", min: 0, max: 1 },
-          { name: "Max Output Tokens", value: "4096", hint: "Response limit", type: "input" },
-          { name: "Context Window", value: "32768", hint: "Conversation memory size", type: "input" },
-          { name: "Streaming", value: "Enabled", hint: "Render tokens live", type: "toggle" },
-          { name: "System Prompt", value: settingValues["System Prompt"] ?? "You are a helpful AI assistant.", hint: "Click to edit (used instead of LM Studio)", type: "prompt-trigger", presets: { Default: "You are a helpful AI assistant.", Coder: "You are an expert programmer. Help with code, debugging, architecture, and technical questions. Be precise and include examples when useful.", Creative: "You are a creative assistant. Help with writing, stories, ideas, and brainstorming. Be imaginative and engaging.", Assistant: "You are a helpful desktop assistant. Be concise, practical, and focused on getting things done." } },
+          { name: "Temperature", value: settingValues.Temperature || "0.7", hint: "Creativity level", type: "slider", min: 0, max: 2, provider: settingValues.Provider },
+          { name: "Top P", value: settingValues["Top P"] || "0.95", hint: "Probability mass", type: "slider", min: 0, max: 1, provider: settingValues.Provider },
+          { name: "Max Output Tokens", value: settingValues["Max Output Tokens"] || "4096", hint: "Response limit", type: "input", provider: settingValues.Provider },
+          { name: "Context Window", value: settingValues["Context Window"] || "32768", hint: "Conversation memory size (Synced with Studio)", type: "input", provider: settingValues.Provider },
+          { name: "Streaming", value: "Enabled", hint: "Render tokens live", type: "toggle", provider: settingValues.Provider },
+          { name: "Model Name", value: settingValues["Model Name"] || "local-model", hint: "Select active model", type: availableModels.length ? "select" : "input", options: availableModels.map(m => typeof m === "string" ? m : m.id), provider: settingValues.Provider },
+          { name: "Presence Penalty", value: settingValues["Presence Penalty"] ?? "0.0", hint: "Penalize repeated topics (-2 to 2)", type: "slider", min: -2, max: 2, provider: settingValues.Provider },
+          { name: "Frequency Penalty", value: settingValues["Frequency Penalty"] ?? "0.0", hint: "Penalize repeated words (-2 to 2)", type: "slider", min: -2, max: 2, provider: settingValues.Provider },
+          { name: "Seed", value: settingValues["Seed"] ?? "", hint: "Deterministic results (empty = random)", type: "input", provider: settingValues.Provider },
+          { name: "System Prompt", value: settingValues["System Prompt"] ?? "You are a helpful AI assistant.", hint: "Click to edit (used instead of LM Studio)", type: "prompt-trigger", presets: { Default: "You are a helpful AI assistant.", Coder: "You are an expert programmer. Help with code, debugging, architecture, and technical questions. Be precise and include examples when useful.", Creative: "You are a creative assistant. Help with writing, stories, ideas, and brainstorming. Be imaginative and engaging.", Assistant: "You are a helpful desktop assistant. Be concise, practical, and focused on getting things done." }, provider: settingValues.Provider },
         ],
       },
       {
@@ -431,18 +437,37 @@ export default function AIBotDesktopUI({
 
                   <div className={`border-t p-5 ${isLightTheme ? "border-black/10" : "border-white/10"}`}>
                     <div className={`flex items-end gap-3 p-3 ${uiStyle.border} ${uiStyle.card} ${theme.input}`}>
-                      <textarea
-                        ref={chatInputRef}
-                        value={inputText}
-                        onChange={(e) => onInputChange(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSendMessage(); } }}
-                        className={`min-h-[56px] flex-1 resize-none bg-transparent px-3 py-3 text-sm outline-none ${isLightTheme ? "text-neutral-800 placeholder:text-neutral-400" : "text-white/90 placeholder:text-white/35"}`}
-                        placeholder="Message your AI bot..."
-                        disabled={isLoading}
-                      />
-                      <button onClick={onSendMessage} disabled={isLoading} className={`bg-white px-5 py-3 text-sm font-semibold text-black transition hover:opacity-90 ${uiStyle.button} disabled:opacity-50`}>
-                        {isLoading ? "..." : "Send"}
-                      </button>
+                      <div className="relative flex flex-1">
+                        <textarea
+                          ref={chatInputRef}
+                          value={inputText}
+                          onChange={(e) => onInputChange(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSendMessage(); } }}
+                          className={`min-h-[56px] flex-1 resize-none bg-transparent px-3 py-3 text-sm outline-none ${isLightTheme ? "text-neutral-800 placeholder:text-neutral-400" : "text-white/90 placeholder:text-white/35"}`}
+                          placeholder="Message your AI bot..."
+                        />
+                        <ContextIndicator 
+                          messages={messages} 
+                          inputText={inputText} 
+                          systemPrompt={settingValues["System Prompt"]} 
+                          contextLimit={parseInt(settingValues["Context Window"] || "32768", 10)} 
+                          isLightTheme={isLightTheme}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <button onClick={onSendMessage} className={`bg-white px-5 py-3 text-sm font-semibold text-black transition hover:opacity-90 ${uiStyle.button} relative`}>
+                          {isLoading ? (
+                            <div className="flex items-center gap-2">
+                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                              {messageQueueCount > 0 && (
+                                <span className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-[10px] text-white">
+                                  {messageQueueCount}
+                                </span>
+                              )}
+                            </div>
+                          ) : "Send"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -579,7 +604,7 @@ export default function AIBotDesktopUI({
                     <button onClick={() => setSystemPromptEditorOpen(false)} className={`rounded-lg px-4 py-2 text-sm font-medium transition hover:opacity-90 ${isLightTheme ? "bg-neutral-200 text-neutral-700 hover:bg-neutral-300" : "bg-zinc-700 text-zinc-200 hover:bg-zinc-600"}`}>Cancel</button>
                   </div>
                 </div>
-                
+
                 <div className="flex min-h-0 flex-1">
                   {/* Left Sidebar: Library */}
                   <div className={`flex w-72 flex-col border-r ${isLightTheme ? "border-neutral-200 bg-neutral-50" : "border-zinc-700/50 bg-zinc-800/30"}`}>
@@ -589,14 +614,14 @@ export default function AIBotDesktopUI({
                         {["Default", "Coder", "Creative", "Assistant"].map((label) => {
                           const presets = { Default: "You are a helpful AI assistant.", Coder: "You are an expert programmer. Help with code, debugging, architecture, and technical questions. Be precise and include examples when useful.", Creative: "You are a creative assistant. Help with writing, stories, ideas, and brainstorming. Be imaginative and engaging.", Assistant: "You are a helpful desktop assistant. Be concise, practical, and focused on getting things done." };
                           return (
-                            <button key={label} type="button" onClick={() => {setPromptNameDraft(""); setSystemPromptDraft(presets[label]);}} className={`truncate rounded-lg px-3 py-2 text-left text-sm font-medium transition hover:opacity-90 ${isLightTheme ? "text-neutral-700 hover:bg-neutral-200/50" : "text-zinc-200 hover:bg-zinc-700/50"}`}>
+                            <button key={label} type="button" onClick={() => { setPromptNameDraft(""); setSystemPromptDraft(presets[label]); }} className={`truncate rounded-lg px-3 py-2 text-left text-sm font-medium transition hover:opacity-90 ${isLightTheme ? "text-neutral-700 hover:bg-neutral-200/50" : "text-zinc-200 hover:bg-zinc-700/50"}`}>
                               {label}
                             </button>
                           );
                         })}
                       </div>
                     </div>
-                    
+
                     <div className="flex min-h-0 flex-1 flex-col p-4">
                       <p className={`text-xs font-semibold uppercase tracking-wider ${textSub}`}>Custom Prompts</p>
                       <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
@@ -605,7 +630,7 @@ export default function AIBotDesktopUI({
                         ) : (
                           customPrompts.map((p) => (
                             <div key={p.id} className={`group flex items-center justify-between rounded-lg px-3 py-2 transition ${isLightTheme ? "hover:bg-neutral-200/50" : "hover:bg-zinc-700/50"}`}>
-                              <button onClick={() => {setPromptNameDraft(p.name); setSystemPromptDraft(p.content);}} className={`truncate text-left text-sm font-medium ${textMain}`}>
+                              <button onClick={() => { setPromptNameDraft(p.name); setSystemPromptDraft(p.content); }} className={`truncate text-left text-sm font-medium ${textMain}`}>
                                 {p.name}
                               </button>
                               <button onClick={() => deletePromptFromLibrary(p.id)} className={`text-xs opacity-0 transition group-hover:opacity-100 ${isLightTheme ? "text-red-500 hover:text-red-700" : "text-red-400 hover:text-red-300"}`} title="Delete">
@@ -621,14 +646,14 @@ export default function AIBotDesktopUI({
                   {/* Right Content: Editor */}
                   <div className="flex min-h-0 flex-1 flex-col p-6">
                     <div className="mb-4 flex gap-3">
-                      <input 
-                        value={promptNameDraft} 
-                        onChange={(e) => setPromptNameDraft(e.target.value)} 
-                        placeholder="Name this prompt (e.g., Code Reviewer)" 
-                        className={`flex-1 rounded-xl px-4 py-2 text-sm outline-none ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 placeholder:text-neutral-400 focus:border-violet-400 focus:ring-1 focus:ring-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"}`} 
+                      <input
+                        value={promptNameDraft}
+                        onChange={(e) => setPromptNameDraft(e.target.value)}
+                        placeholder="Name this prompt (e.g., Code Reviewer)"
+                        className={`flex-1 rounded-xl px-4 py-2 text-sm outline-none ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 placeholder:text-neutral-400 focus:border-violet-400 focus:ring-1 focus:ring-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"}`}
                       />
-                      <button 
-                        onClick={savePromptToLibrary} 
+                      <button
+                        onClick={savePromptToLibrary}
                         disabled={!systemPromptDraft.trim()}
                         className={`rounded-xl px-4 py-2 text-sm font-medium transition disabled:opacity-50 ${isLightTheme ? "border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50" : "border border-zinc-600 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}>
                         Save to Library
@@ -711,6 +736,58 @@ export default function AIBotDesktopUI({
   );
 }
 
+function ContextIndicator({ messages, inputText, systemPrompt, contextLimit, isLightTheme }) {
+  const totalChars = (systemPrompt || "").length + messages.reduce((acc, m) => acc + (m.content || "").length, 0) + (inputText || "").length;
+  const estimatedTokens = Math.ceil(totalChars / 4);
+  const percentage = Math.min(100, Math.round((estimatedTokens / contextLimit) * 100));
+  
+  // Circular progress params
+  const size = 32;
+  const strokeWidth = 3;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const offset = circumference - (percentage / 100) * circumference;
+
+  return (
+    <div className="group absolute bottom-3 right-3 flex items-center justify-center">
+      {/* Tooltip on hover */}
+      <div className={`absolute bottom-full mb-2 hidden w-32 rounded-lg p-2 text-center text-[10px] shadow-xl group-hover:block ${isLightTheme ? "bg-neutral-800 text-white" : "bg-white text-neutral-800"}`}>
+        <p className="font-bold">{estimatedTokens.toLocaleString()} / {contextLimit.toLocaleString()}</p>
+        <p className="opacity-70 text-[8px]">tokens used</p>
+        <div className={`absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent ${isLightTheme ? "border-t-neutral-800" : "border-t-white"}`}></div>
+      </div>
+
+      <div className="relative h-8 w-8 cursor-help">
+        <svg className="h-full w-full rotate-[-90deg]">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="transparent"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            className={`${isLightTheme ? "text-black/5" : "text-white/5"}`}
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="transparent"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            style={{ strokeDashoffset: offset }}
+            className={`transition-all duration-500 ease-out ${percentage > 90 ? "text-red-500" : percentage > 70 ? "text-amber-500" : "text-violet-500"}`}
+          />
+        </svg>
+        <div className={`absolute inset-0 flex items-center justify-center text-[8px] font-bold ${isLightTheme ? "text-neutral-500" : "text-neutral-400"}`}>
+          {percentage}%
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingRow({ item, currentValue, onAction, onValueChange, inputBg, cardBg, textMain, textSub, radiusClass, borderClass, titleClass }) {
   const isToggleOn = ["Enabled", "On", "Allowed", "Available"].includes(currentValue);
 
@@ -728,7 +805,12 @@ function SettingRow({ item, currentValue, onAction, onValueChange, inputBg, card
             </select>
           )}
           {item.type === "input" && (
-            <input value={currentValue} onChange={(e) => onValueChange(e.target.value)} className={`w-full px-3 py-2 text-sm outline-none ${borderClass} ${radiusClass} ${inputBg}`} />
+            <input 
+              value={currentValue} 
+              onChange={(e) => onValueChange(e.target.value)} 
+              disabled={item.name === "Context Window" && item.provider === "LM Studio"}
+              className={`w-full px-3 py-2 text-sm outline-none ${borderClass} ${radiusClass} ${inputBg} ${(item.name === "Context Window" && item.provider === "LM Studio") ? "opacity-30 cursor-not-allowed" : ""}`} 
+            />
           )}
           {item.type === "prompt-trigger" && (
             <button type="button" onClick={onAction} className={`w-full truncate px-3 py-2.5 text-left text-sm transition hover:opacity-90 ${borderClass} ${radiusClass} ${inputBg}`}>

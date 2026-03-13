@@ -27,14 +27,64 @@ function getClient() {
 
 export const llmService = {
   async listModels() {
+    const settings = settingsService.getAll();
+    const provider = settings.Provider || "LM Studio";
+    let endpoint = settings.Endpoint || "http://localhost:1234";
+
     try {
+      if (provider === "LM Studio") {
+        const baseUrl = endpoint.replace(/\/v1\/?$/, "").replace(/\/?$/, "");
+        
+        // Try V0 first - it has exactly what we need (loaded_context_length)
+        try {
+          const v0Url = `${baseUrl}/api/v0/models`;
+          const res = await fetch(v0Url);
+          if (res.ok) {
+            const json = await res.json();
+            const raw = json.data || [];
+            const models = raw.map(m => ({
+              ...m,
+              // Frontend expects 'context_length'
+              context_length: m.loaded_context_length || m.max_context_length || undefined,
+            }));
+            const loaded = models.filter(m => m.state === "loaded" && m.type === "llm");
+            logService.info("LM Studio", `V0: Found ${loaded.length} loaded LLMs`);
+            return { ok: true, models };
+          }
+        } catch (e) {
+          logService.info("LM Studio", "V0 API not available, trying V1...");
+        }
+
+        // Fallback or Try V1 if V0 failed / returned empty
+        const v1Url = `${baseUrl}/api/v1/models`;
+        const res = await fetch(v1Url);
+        const json = await res.json();
+        const raw = json.models || json.data || [];
+        
+        const models = raw.map(m => {
+          // In V1, loaded info is in loaded_instances
+          const instance = m.loaded_instances?.[0];
+          return {
+            id: m.key || m.id,
+            ...m,
+            state: instance ? "loaded" : "not-loaded",
+            context_length: instance?.config?.context_length || m.max_context_length || undefined,
+            loaded_context_length: instance?.config?.context_length,
+          };
+        });
+
+        const loadedCount = models.filter(m => m.state === "loaded").length;
+        logService.info("LM Studio", `V1: Found ${loadedCount} loaded models`);
+        return { ok: true, models };
+      }
+
+      // Other providers: OpenAI-compatible
       const c = getClient();
       const list = await c.models.list();
-      const models = list.data?.map((m) => m.id) || [];
-      logService.info("LM Studio", `Listed ${models.length} models: ${models.slice(0, 3).join(", ")}${models.length > 3 ? "..." : ""}`);
+      const models = (list.data || []).map(m => ({ ...m }));
       return { ok: true, models };
     } catch (e) {
-      logService.error("LM Studio", e.message);
+      logService.error("ListModels", e.message);
       return { ok: false, error: e.message, models: [] };
     }
   },
@@ -55,13 +105,19 @@ export const llmService = {
       systemContent += `\n\nHere are some relevant past memories about the user that might help you answer:\n${memoryContext}`;
     }
 
+    // Use a slightly more aggressive estimate or simple char-based if no tokenizer
     const contextWindow = parseInt(options.contextWindow || settings["Context Window"] || "32768", 10);
     const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
+    
+    // We aim for the App to be the source of truth. 
+    // We truncate the input to fit the user-defined contextWindow.
     const inputBudget = Math.max(1024, (contextWindow - maxTokens) * CHARS_PER_TOKEN);
 
     const systemMsg = { role: "system", content: systemContent };
     let budget = inputBudget - systemContent.length;
     const out = [];
+    
+    // Iterate backwards to keep recent messages
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       const len = (m.content || "").length;
@@ -69,8 +125,9 @@ export const llmService = {
       out.unshift(m);
       budget -= len;
     }
+    
     const finalMsgs = [systemMsg, ...out];
-    logService.info("Context", `System: "${systemMsg.content.substring(0, 50)}..."`);
+    logService.info("Context", `Enforcing ${contextWindow} window. Sending ${finalMsgs.length} messages (~${(inputBudget - budget) / CHARS_PER_TOKEN} tokens)`);
     return finalMsgs;
   },
 
@@ -78,12 +135,12 @@ export const llmService = {
     if (!text) return null;
     const settings = settingsService.getAll();
     const model = settings["Embedding Model Name"] || "nomic-embed-text";
-    
+
     try {
       let client = getClient();
       const embedEndpoint = settings["Embedding Endpoint"];
       let usedEndpoint = client.baseURL;
-      
+
       // Use a different client if a specific embedding endpoint is provided
       if (embedEndpoint && embedEndpoint.trim() !== "") {
         let baseURL = embedEndpoint.trim();
@@ -103,7 +160,7 @@ export const llmService = {
         model,
         input: text,
       }, { timeout: 10000 }); // 10 second timeout
-      
+
       if (!silent) {
         logService.info("Embedding", `Successfully received vector of length ${res.data[0]?.embedding?.length}`);
       }
@@ -118,10 +175,10 @@ export const llmService = {
 
   async extractAndSaveMemory(userText) {
     if (!userText || userText.length < 5) return;
-    
+
     const settings = settingsService.getAll();
     const model = settings["Model Name"] || "local-model";
-    
+
     const prompt = `Analyze the following user message. If it contains a new personal fact, preference, or important detail about the user, extract it as a concise statement in the SAME LANGUAGE as the user's message. If it is just a general question, greeting, or contains no personal facts, reply exactly with "NONE".
     
 Examples:
@@ -141,10 +198,10 @@ User message: "${userText}"`;
         temperature: 0.1, // Low temperature for factual extraction
         max_tokens: 50,
       });
-      
+
       const extractedFact = res.choices[0]?.message?.content?.trim();
       logService.info("Auto-Learning", `Model returned: "${extractedFact}"`);
-      
+
       if (extractedFact && extractedFact !== "NONE" && !extractedFact.toLowerCase().includes("none")) {
         const autoSaveMode = settings["Auto Save Memories"] || "Review First";
         if (autoSaveMode === "Off") {
@@ -154,9 +211,9 @@ User message: "${userText}"`;
         // Note: For "Review First", we currently save it directly but could add a UI prompt later.
         const capacity = parseInt(settings["Database Capacity"] || "100", 10);
         logService.info("Auto-Learning", `Extracted new memory: ${extractedFact}`);
-        
+
         const vector = await this.getEmbedding(extractedFact);
-        
+
         memoryService.add({
           user: "User",
           content: extractedFact,
@@ -175,7 +232,11 @@ User message: "${userText}"`;
     const temperature = parseFloat(options.temperature ?? settings.Temperature ?? "0.7");
     const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
     const topP = parseFloat(options.topP ?? settings["Top P"] ?? "0.95");
-    
+    const presencePenalty = parseFloat(options.presencePenalty ?? settings["Presence Penalty"] ?? "0.0");
+    const frequencyPenalty = parseFloat(options.frequencyPenalty ?? settings["Frequency Penalty"] ?? "0.0");
+    const seed = options.seed || settings["Seed"] ? parseInt(options.seed || settings["Seed"], 10) : undefined;
+    const contextWindow = parseInt(options.contextWindow || settings["Context Window"] || "32768", 10);
+
     // RAG: Vector Search for relevant memories
     let memoryContext = "";
     const lastUserMsg = messages.slice().reverse().find(m => m.role === "user");
@@ -185,9 +246,9 @@ User message: "${userText}"`;
         const maxMemories = parseInt(settings["Max Memory Count"] || "3", 10);
         // FORCE the min score to a lower threshold if it's too high, to ensure matches
         let minScore = parseFloat(settings["Min Memory Score"] || "0.5");
-        
+
         const relevantMemories = memoryService.searchVector(queryVector, maxMemories, minScore);
-        
+
         if (relevantMemories && relevantMemories.length > 0) {
           memoryContext = relevantMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
           const logTexts = relevantMemories.map(m => `"${m.content}" (sim: ${m.similarity.toFixed(2)})`).join(" | ");
@@ -207,25 +268,36 @@ User message: "${userText}"`;
 
     const prepared = this._prepareMessages(messages, settings, options, memoryContext);
 
-    logService.info("Request", `model=${model} messages=${prepared.length} ctx=${settings["Context Window"] || "32768"}`);
+    logService.info("Request", `model=${model} messages=${prepared.length} ctx=${contextWindow}`);
     try {
       const client = getClient();
-      const res = await client.chat.completions.create({
+      
+      const body = {
         model,
         messages: prepared,
         temperature,
         max_tokens: maxTokens,
         top_p: topP,
+        presence_penalty: presencePenalty,
+        frequency_penalty: frequencyPenalty,
+        seed,
         stream: false,
-      });
+      };
+
+      // Ollama specific context window override
+      if (settings.Provider === "Local / Ollama") {
+        body.options = { num_ctx: contextWindow };
+      }
+
+      const res = await client.chat.completions.create(body);
       const content = res.choices[0]?.message?.content || "";
       logService.info("Response", `tokens ~${content.length}`);
-      
+
       // Auto-Learning: Trigger in background
       if (lastUserMsg && lastUserMsg.content) {
         this.extractAndSaveMemory(lastUserMsg.content).catch(e => console.error("Auto-learning error:", e));
       }
-      
+
       return content;
     } catch (e) {
       logService.error("Chat failed", e.message);
@@ -240,8 +312,12 @@ User message: "${userText}"`;
     const temperature = parseFloat(options.temperature ?? settings.Temperature ?? "0.7");
     const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
     const topP = parseFloat(options.topP ?? settings["Top P"] ?? "0.95");
+    const presencePenalty = parseFloat(options.presencePenalty ?? settings["Presence Penalty"] ?? "0.0");
+    const frequencyPenalty = parseFloat(options.frequencyPenalty ?? settings["Frequency Penalty"] ?? "0.0");
+    const seed = options.seed || settings["Seed"] ? parseInt(options.seed || settings["Seed"], 10) : undefined;
+    const contextWindow = parseInt(options.contextWindow || settings["Context Window"] || "32768", 10);
     const streamEnabled = settings.Streaming === "Enabled";
-    
+
     // RAG: Vector Search for relevant memories
     let memoryContext = "";
     const lastUserMsg = messages.slice().reverse().find(m => m.role === "user");
@@ -251,9 +327,9 @@ User message: "${userText}"`;
         const maxMemories = parseInt(settings["Max Memory Count"] || "3", 10);
         // FORCE the min score to a lower threshold if it's too high, to ensure matches
         let minScore = parseFloat(settings["Min Memory Score"] || "0.5");
-        
+
         const relevantMemories = memoryService.searchVector(queryVector, maxMemories, minScore);
-        
+
         if (relevantMemories && relevantMemories.length > 0) {
           memoryContext = relevantMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
           const logTexts = relevantMemories.map(m => `"${m.content}" (sim: ${m.similarity.toFixed(2)})`).join(" | ");
@@ -293,14 +369,25 @@ User message: "${userText}"`;
 
     try {
       const client = getClient();
-      const stream = await client.chat.completions.create({
+      
+      const body = {
         model,
         messages: prepared,
         temperature,
         max_tokens: maxTokens,
         top_p: topP,
+        presence_penalty: presencePenalty,
+        frequency_penalty: frequencyPenalty,
+        seed,
         stream: true,
-      });
+      };
+
+      // Ollama specific context window override
+      if (settings.Provider === "Local / Ollama") {
+        body.options = { num_ctx: contextWindow };
+      }
+
+      const stream = await client.chat.completions.create(body);
 
       let tokenCount = 0;
       for await (const chunk of stream) {
@@ -311,12 +398,12 @@ User message: "${userText}"`;
         }
       }
       logService.info("Response", `streamed ~${tokenCount} chunks`);
-      
+
       // Auto-Learning: Trigger in background after stream completes
       if (lastUserMsg && lastUserMsg.content) {
         this.extractAndSaveMemory(lastUserMsg.content).catch(e => console.error("Auto-learning error:", e));
       }
-      
+
     } catch (e) {
       logService.error("Stream failed", e.message);
       if (mainWindow?.webContents) {
