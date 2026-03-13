@@ -26,6 +26,8 @@ const DEFAULT_SETTINGS = {
   "Min Memory Score": "0.8",
   "Max Memory Count": "3",
   "Database Capacity": "100",
+  Personas: "[]",
+  "Active Persona ID": "",
   Streaming: "Enabled",
 };
 
@@ -98,13 +100,13 @@ export default function App() {
     };
 
     fetchModels();
-    
+
     // Poll every 5s if LM Studio to pick up external changes
     let interval;
     if (settingValues.Provider === "LM Studio") {
       interval = setInterval(fetchModels, 5000);
     }
-    
+
     return () => {
       if (interval) clearInterval(interval);
     };
@@ -114,15 +116,15 @@ export default function App() {
   useEffect(() => {
     if (settingValues.Provider === "LM Studio" && availableModels.length > 0) {
       const currentModelId = settingValues["Model Name"];
-      
+
       // Priority 1: Find the specific model by ID that is loaded
       let target = availableModels.find(m => m.id === currentModelId && m.state === "loaded");
-      
+
       // Priority 2: Any loaded LLM model (user may not have selected the right name yet)
       if (!target) {
         target = availableModels.find(m => m.state === "loaded" && m.type === "llm");
       }
-      
+
       // Priority 3: The model by ID regardless of state
       if (!target) {
         target = availableModels.find(m => m.id === currentModelId);
@@ -134,7 +136,7 @@ export default function App() {
         if (fetchedCtx && String(fetchedCtx) !== settingValues["Context Window"]) {
           console.log(`[Sync] Updating Context Window: ${settingValues["Context Window"]} -> ${fetchedCtx} (Source: ${target.id})`);
           setSettingValues(prev => ({ ...prev, "Context Window": String(fetchedCtx) }));
-          electronApi?.settingsSet?.("Context Window", String(fetchedCtx)).catch(() => {});
+          electronApi?.settingsSet?.("Context Window", String(fetchedCtx)).catch(() => { });
         }
       }
     }
@@ -185,13 +187,40 @@ export default function App() {
     });
   }, []);
 
+  const handlePersonaSwitch = useCallback((personaId) => {
+    try {
+      const personas = JSON.parse(settingValues.Personas || "[]");
+      const target = personas.find(p => p.id === personaId);
+      if (target) {
+        const updates = {
+          "Active Persona ID": personaId,
+          "System Prompt": target.prompt || "",
+          "Model Name": target.model || settingValues["Model Name"],
+          "Temperature": String(target.temperature ?? settingValues.Temperature),
+          "Top P": String(target.topP ?? settingValues["Top P"]),
+          "Max Output Tokens": String(target.maxTokens ?? settingValues["Max Output Tokens"]),
+          "Context Window": String(target.contextWindow ?? settingValues["Context Window"]),
+        };
+
+        setSettingValues(prev => ({ ...prev, ...updates }));
+        electronApi?.settingsSetBulk?.(updates).catch(() => { });
+      } else if (personaId === "") {
+        // Switch to "Default / No Persona"
+        setSettingValues(prev => ({ ...prev, "Active Persona ID": "" }));
+        electronApi?.settingsSet?.("Active Persona ID", "").catch(() => { });
+      }
+    } catch (e) {
+      console.error("Persona switch error:", e);
+    }
+  }, [settingValues.Personas, settingValues.Temperature, settingValues["Top P"], settingValues["Max Output Tokens"], settingValues["Model Name"]]);
+
   const handleSettingChange = useCallback((name, value) => {
     setSettingValues((prev) => {
       const next = { ...prev, [name]: value };
-      
+
       // Auto-sync logic moved to dedicated useEffect for robustness
-      
-      electronApi?.settingsSet?.(name, value).catch(() => {});
+
+      electronApi?.settingsSet?.(name, value).catch(() => { });
       return next;
     });
   }, [availableModels]);
@@ -209,7 +238,7 @@ export default function App() {
     setInputText("");
     const userMsg = { role: "user", content: text };
     const newMsgs = [...messages, userMsg, { role: "assistant", content: "" }];
-    
+
     setChats((prev) => {
       const next = prev.map((c) => {
         if (c.id !== activeChatId) return c;
@@ -241,7 +270,7 @@ export default function App() {
     const doneHandler = () => {
       setIsLoading(false);
       electronApi?.removeChatListeners?.();
-      
+
       // Handle queue
       setMessageQueue((prev) => {
         if (prev.length > 0) {
@@ -264,7 +293,6 @@ export default function App() {
       frequencyPenalty: settingValues["Frequency Penalty"],
       seed: settingValues["Seed"],
     };
-
 
     if (electronApi?.chatStream) {
       electronApi.removeChatListeners?.();
@@ -376,6 +404,7 @@ export default function App() {
       onRenameChat={handleRenameChat}
       availableModels={availableModels}
       messageQueueCount={messageQueue.length}
+      onPersonaSwitch={handlePersonaSwitch}
     />
   );
 }

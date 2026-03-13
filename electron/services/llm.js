@@ -105,29 +105,35 @@ export const llmService = {
       systemContent += `\n\nHere are some relevant past memories about the user that might help you answer:\n${memoryContext}`;
     }
 
-    // Use a slightly more aggressive estimate or simple char-based if no tokenizer
     const contextWindow = parseInt(options.contextWindow || settings["Context Window"] || "32768", 10);
     const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
     
-    // We aim for the App to be the source of truth. 
-    // We truncate the input to fit the user-defined contextWindow.
-    const inputBudget = Math.max(1024, (contextWindow - maxTokens) * CHARS_PER_TOKEN);
+    // Check if turn-based memory is enabled
+    const turnsEnabled = settings["Short-Term Memory"] !== "Off" && settings["Short-Term Memory"] !== "Disabled";
+    const maxTurns = parseInt(settings["Short Memory Turns"] || "12", 10);
 
+    const inputBudget = Math.max(1024, (contextWindow - maxTokens) * CHARS_PER_TOKEN);
     const systemMsg = { role: "system", content: systemContent };
     let budget = inputBudget - systemContent.length;
     const out = [];
     
+    let turnCount = 0;
     // Iterate backwards to keep recent messages
     for (let i = messages.length - 1; i >= 0; i--) {
+      // If turn limit is enabled and reached, stop
+      if (turnsEnabled && turnCount >= maxTurns) break;
+
       const m = messages[i];
       const len = (m.content || "").length;
       if (budget - len < 0) break;
+      
       out.unshift(m);
       budget -= len;
+      turnCount++;
     }
     
     const finalMsgs = [systemMsg, ...out];
-    logService.info("Context", `Enforcing ${contextWindow} window. Sending ${finalMsgs.length} messages (~${(inputBudget - budget) / CHARS_PER_TOKEN} tokens)`);
+    logService.info("Context", `Enforcing limits: ${turnsEnabled ? maxTurns + " turns & " : ""}${contextWindow} window. Sending ${finalMsgs.length} messages.`);
     return finalMsgs;
   },
 

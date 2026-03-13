@@ -27,6 +27,7 @@ export default function AIBotDesktopUI({
   hasElectronAPI = true,
   availableModels = [],
   messageQueueCount = 0,
+  onPersonaSwitch = () => { },
 }) {
   const chatInputRef = useRef(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -40,6 +41,8 @@ export default function AIBotDesktopUI({
   const [systemPromptEditorOpen, setSystemPromptEditorOpen] = useState(false);
   const [systemPromptDraft, setSystemPromptDraft] = useState("");
   const [promptNameDraft, setPromptNameDraft] = useState("");
+  const [personaEditorOpen, setPersonaEditorOpen] = useState(false);
+  const [personaDraft, setPersonaDraft] = useState({ name: "", prompt: "", model: "", temperature: 0.7, topP: 0.95, maxTokens: 4096, contextWindow: 32768 });
   const [screenCaptureSettingsOpen, setScreenCaptureSettingsOpen] = useState(false);
   const [selectedMemoryIds, setSelectedMemoryIds] = useState(new Set());
   const [logEntries, setLogEntries] = useState([]);
@@ -65,8 +68,6 @@ export default function AIBotDesktopUI({
   useEffect(() => {
     if (activeTab === "log" && hasElectronAPI) {
       onGetLogs().then(setLogEntries);
-      const id = setInterval(() => onGetLogs().then(setLogEntries), 2000);
-      return () => clearInterval(id);
     }
   }, [activeTab, hasElectronAPI, onGetLogs]);
 
@@ -76,6 +77,30 @@ export default function AIBotDesktopUI({
       setPromptNameDraft("");
     }
   }, [systemPromptEditorOpen, settingValues["System Prompt"]]);
+
+  const personas = useMemo(() => {
+    try {
+      return JSON.parse(settingValues.Personas || "[]");
+    } catch {
+      return [];
+    }
+  }, [settingValues.Personas]);
+
+  useEffect(() => {
+    if (personaEditorOpen) {
+      const activeId = settingValues["Active Persona ID"];
+      if (activeId) {
+        const active = personas.find(p => p.id === activeId);
+        if (active) {
+          setPersonaDraft(active);
+          return;
+        }
+      }
+      if (!personaDraft.name && personas.length > 0) {
+        setPersonaDraft(personas[0]);
+      }
+    }
+  }, [personaEditorOpen, settingValues["Active Persona ID"], personas]);
 
   const customPrompts = useMemo(() => {
     try {
@@ -98,6 +123,33 @@ export default function AIBotDesktopUI({
   const deletePromptFromLibrary = (id) => {
     const newPrompts = customPrompts.filter((p) => p.id !== id);
     handleSettingChange("System Prompts", JSON.stringify(newPrompts));
+  };
+
+  const savePersonaToLibrary = (andActivate = false) => {
+    if (!personaDraft.name.trim() || !personaDraft.prompt.trim()) return;
+    const id = personaDraft.id || Date.now().toString();
+    const newPersona = { ...personaDraft, id };
+    
+    let nextPersonas;
+    const existing = personas.find(p => p.id === id);
+    if (existing) {
+      nextPersonas = personas.map(p => p.id === id ? newPersona : p);
+    } else {
+      nextPersonas = [...personas, newPersona];
+    }
+    
+    handleSettingChange("Personas", JSON.stringify(nextPersonas));
+    
+    if (andActivate) {
+      onPersonaSwitch(id);
+    }
+    
+    setPersonaEditorOpen(false);
+  };
+
+  const deletePersonaFromLibrary = (id) => {
+    const nextPersonas = personas.filter((p) => p.id !== id);
+    handleSettingChange("Personas", JSON.stringify(nextPersonas));
   };
 
   const settingSections = useMemo(
@@ -140,10 +192,17 @@ export default function AIBotDesktopUI({
           { name: "Context Window", value: settingValues["Context Window"] || "32768", hint: "Conversation memory size (Synced with Studio)", type: "input", provider: settingValues.Provider },
           { name: "Streaming", value: "Enabled", hint: "Render tokens live", type: "toggle", provider: settingValues.Provider },
           { name: "Model Name", value: settingValues["Model Name"] || "local-model", hint: "Select active model", type: availableModels.length ? "select" : "input", options: availableModels.map(m => typeof m === "string" ? m : m.id), provider: settingValues.Provider },
-          { name: "Presence Penalty", value: settingValues["Presence Penalty"] ?? "0.0", hint: "Penalize repeated topics (-2 to 2)", type: "slider", min: -2, max: 2, provider: settingValues.Provider },
           { name: "Frequency Penalty", value: settingValues["Frequency Penalty"] ?? "0.0", hint: "Penalize repeated words (-2 to 2)", type: "slider", min: -2, max: 2, provider: settingValues.Provider },
           { name: "Seed", value: settingValues["Seed"] ?? "", hint: "Deterministic results (empty = random)", type: "input", provider: settingValues.Provider },
-          { name: "System Prompt", value: settingValues["System Prompt"] ?? "You are a helpful AI assistant.", hint: "Click to edit (used instead of LM Studio)", type: "prompt-trigger", presets: { Default: "You are a helpful AI assistant.", Coder: "You are an expert programmer. Help with code, debugging, architecture, and technical questions. Be precise and include examples when useful.", Creative: "You are a creative assistant. Help with writing, stories, ideas, and brainstorming. Be imaginative and engaging.", Assistant: "You are a helpful desktop assistant. Be concise, practical, and focused on getting things done." }, provider: settingValues.Provider },
+          { name: "Active Persona ID", value: settingValues["Active Persona ID"] || "", hint: "Select an active persona that overrides settings", type: "select", options: [{ id: "", name: "Default AI (None)" }, ...personas], labelKey: "name", valueKey: "id", onValueChange: (v) => onPersonaSwitch(v) },
+          { name: "Persona Manager", value: "Manage your AI personas", hint: "Create, edit, or delete personas", type: "action", buttonLabel: "Open Manager", onAction: () => setPersonaEditorOpen(true) },
+          { 
+            name: "System Prompt", 
+            value: settingValues["System Prompt"] ?? "You are a helpful AI assistant.", 
+            hint: settingValues["Active Persona ID"] ? `Controlled by Persona: ${personas.find(p => p.id === settingValues["Active Persona ID"])?.name || "Active Persona"}` : "Currently active prompt instructions", 
+            type: "prompt-trigger", 
+            disabled: !!settingValues["Active Persona ID"]
+          },
         ],
       },
       {
@@ -350,11 +409,27 @@ export default function AIBotDesktopUI({
                   </button>
                 </div>
 
-                <button onClick={activeTab === "chat" ? onNewChat : undefined} className={`mb-5 px-4 py-3 text-sm font-semibold text-black transition hover:opacity-90 ${uiStyle.button} bg-white`}>
+                <button onClick={activeTab === "chat" ? onNewChat : undefined} className={`mb-4 px-4 py-3 text-sm font-semibold text-black transition hover:opacity-90 ${uiStyle.button} bg-white`}>
                   {activeTab === "chat" ? "+ New Chat" : "Search Settings"}
                 </button>
 
-                <div className="min-h-0 flex-1 pr-1">
+                {activeTab === "chat" && personas.length > 0 && (
+                  <div className="mb-4">
+                    <p className={`mb-2 px-1 text-[10px] font-bold uppercase tracking-widest ${textSub}`}>Active Persona</p>
+                    <select 
+                      value={settingValues["Active Persona ID"] || ""} 
+                      onChange={(e) => onPersonaSwitch(e.target.value)}
+                      className={`w-full truncate px-3 py-2 text-xs outline-none transition ${uiStyle.button} ${uiStyle.border} ${theme.input} ${uiStyle.title}`}
+                    >
+                      <option value="">Default AI (None)</option>
+                      {personas.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className={`min-h-0 flex-1 overflow-y-auto pr-1 ${!isLightTheme ? "dark-scroll" : ""}`}>
                   {activeTab === "chat" ? (
                     <div className="flex h-full min-h-0 flex-col gap-4">
                       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -425,7 +500,7 @@ export default function AIBotDesktopUI({
 
               {activeTab === "chat" && (
                 <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-                  <div className="flex-1 space-y-5 overflow-y-auto overflow-x-hidden px-6 py-6">
+                  <div className={`flex-1 space-y-5 overflow-y-auto overflow-x-hidden px-6 py-6 ${!isLightTheme ? "dark-scroll" : ""}`}>
                     {messages.map((msg, i) => (
                       <div key={i} className={`min-w-0 ${msg.role === "user" ? `ml-auto max-w-[85%] bg-white px-5 py-4 text-black ${uiStyle.card} ${currentStyle === "Gaming HUD" ? "border-2 border-white/70" : ""}` : `max-w-[85%] px-5 py-4 ${uiStyle.border} ${uiStyle.card} ${theme.bubble}`}`}>
                         <p className={`break-words text-sm ${msg.role === "user" ? "text-black" : textMain}`}>
@@ -451,6 +526,7 @@ export default function AIBotDesktopUI({
                           inputText={inputText} 
                           systemPrompt={settingValues["System Prompt"]} 
                           contextLimit={parseInt(settingValues["Context Window"] || "32768", 10)} 
+                          maxOutputTokens={parseInt(settingValues["Max Output Tokens"] || "4096", 10)}
                           isLightTheme={isLightTheme}
                         />
                       </div>
@@ -486,7 +562,7 @@ export default function AIBotDesktopUI({
                         {settingsSaved ? "Saved!" : "Save"}
                       </button>
                     </div>
-                    <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+                    <div className={`mt-5 min-h-0 flex-1 overflow-y-auto pr-1 ${!isLightTheme ? "dark-scroll" : ""}`}>
                       <div className="space-y-3 pb-6">
                         {currentSection.items.map((item) => (
                           <SettingRow
@@ -526,9 +602,14 @@ export default function AIBotDesktopUI({
                         <h3 className={`mt-2 text-2xl font-semibold ${textMain} ${uiStyle.title}`}>LM Studio / App Log</h3>
                         <p className={`mt-2 text-sm ${textSub}`}>Requests, responses, and errors</p>
                       </div>
-                      <button onClick={handleClearLogs} className={`px-4 py-2 text-sm transition hover:opacity-90 ${uiStyle.border} ${uiStyle.button} ${theme.input}`}>
-                        Clear
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => onGetLogs().then(setLogEntries)} className={`px-4 py-2 text-sm transition hover:opacity-90 ${uiStyle.border} ${uiStyle.button} bg-white text-black`}>
+                          Refresh
+                        </button>
+                        <button onClick={handleClearLogs} className={`px-4 py-2 text-sm transition hover:opacity-90 ${uiStyle.border} ${uiStyle.button} ${theme.input}`}>
+                          Clear
+                        </button>
+                      </div>
                     </div>
                     <div className={`mt-4 min-h-0 flex-1 overflow-auto font-mono text-xs ${isLightTheme ? "text-neutral-700" : "text-white/80"}`}>
                       {!hasElectronAPI ? (
@@ -584,7 +665,7 @@ export default function AIBotDesktopUI({
                   </div>
                   <button onClick={() => setScreenCaptureSettingsOpen(false)} className={`px-4 py-2 text-sm transition hover:opacity-90 ${uiStyle.border} ${uiStyle.button} ${theme.input}`}>Close</button>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto p-6">
+                <div className={`min-h-0 flex-1 overflow-y-auto p-6 ${!isLightTheme ? "dark-scroll" : ""}`}>
                   <p className={textSub}>Screen capture coming soon.</p>
                 </div>
               </div>
@@ -666,6 +747,144 @@ export default function AIBotDesktopUI({
             </div>
           )}
 
+          {personaEditorOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: isLightTheme ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.85)" }} onClick={(e) => e.target === e.currentTarget && setPersonaEditorOpen(false)}>
+              <div className={`flex h-[min(96vh,960px)] w-[min(98vw,1100px)] flex-col overflow-hidden rounded-2xl border shadow-2xl ${isLightTheme ? "border-neutral-200 bg-white" : "border-violet-500/30 bg-zinc-900"}`} onClick={(e) => e.stopPropagation()}>
+                <div className={`flex shrink-0 items-center justify-between border-b px-6 py-4 ${isLightTheme ? "border-neutral-200 bg-neutral-50" : "border-zinc-700/50 bg-zinc-800/80"}`}>
+                  <div>
+                    <p className={`text-xs font-medium uppercase tracking-wider ${isLightTheme ? "text-neutral-500" : "text-zinc-400"}`}>Configuration</p>
+                    <h3 className={`mt-1 text-lg font-semibold ${isLightTheme ? "text-neutral-900" : "text-white"}`}>Persona Manager</h3>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => savePersonaToLibrary(true)} className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition hover:opacity-90">Save & Use Now</button>
+                    <button onClick={() => savePersonaToLibrary(false)} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-500">Save Persona</button>
+                    <button onClick={() => setPersonaEditorOpen(false)} className={`rounded-lg px-4 py-2 text-sm font-medium transition hover:opacity-90 ${isLightTheme ? "bg-neutral-200 text-neutral-700 hover:bg-neutral-300" : "bg-zinc-700 text-zinc-200 hover:bg-zinc-600"}`}>Cancel</button>
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-1">
+                  {/* Left Sidebar: Personas List */}
+                  <div className={`flex w-72 flex-col border-r ${isLightTheme ? "border-neutral-200 bg-neutral-50" : "border-zinc-700/50 bg-zinc-800/30"}`}>
+                    <div className="flex flex-1 flex-col p-4">
+                      <div className="mb-4 flex items-center justify-between">
+                        <p className={`text-xs font-semibold uppercase tracking-wider ${textSub}`}>Library</p>
+                        <button 
+                          onClick={() => setPersonaDraft({ name: "New Persona", prompt: "", model: settingValues["Model Name"], temperature: 0.7, topP: 0.95, maxTokens: 4096, contextWindow: parseInt(settingValues["Context Window"] || "32768", 10) })}
+                          className={`text-[10px] font-bold uppercase text-violet-500 hover:text-violet-400`}
+                        >
+                          + Create
+                        </button>
+                      </div>
+                      <div className={`mt-1 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1 ${!isLightTheme ? "dark-scroll" : ""}`}>
+                        {personas.length === 0 ? (
+                          <p className={`text-xs italic ${textSub}`}>No personas saved yet.</p>
+                        ) : (
+                          personas.map((p) => (
+                            <div 
+                              key={p.id} 
+                              onClick={() => setPersonaDraft(p)}
+                              className={`group flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 transition ${isLightTheme ? "hover:bg-neutral-200/50" : "hover:bg-zinc-700/50"} ${personaDraft.id === p.id ? (isLightTheme ? "bg-violet-100/70" : "bg-violet-900/30 ring-1 ring-violet-500/50") : ""}`}
+                            >
+                              <div className={`truncate text-sm font-medium ${personaDraft.id === p.id ? "text-violet-500" : textMain}`}>
+                                {p.name}
+                              </div>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); deletePersonaFromLibrary(p.id); }} 
+                                className={`flex h-6 w-6 items-center justify-center rounded-md text-xs opacity-0 transition group-hover:opacity-100 ${isLightTheme ? "text-red-500 hover:bg-red-50" : "text-red-400 hover:bg-red-900/30"}`} 
+                                title="Delete"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Content: Details Editor */}
+                  <div className={`flex min-h-0 flex-1 flex-col overflow-y-auto p-6 ${!isLightTheme ? "dark-scroll" : ""}`}>
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="col-span-2 space-y-2">
+                        <label className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>Name</label>
+                        <input
+                          value={personaDraft.name}
+                          onChange={(e) => setPersonaDraft(prev => ({ ...prev, name: e.target.value }))}
+                          placeholder="e.g., Python Expert"
+                          className={`w-full rounded-xl px-4 py-3 text-sm outline-none transition ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 focus:border-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 focus:border-violet-500"}`}
+                        />
+                      </div>
+
+                      <div className="col-span-2 space-y-2">
+                        <label className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>System Prompt</label>
+                        <textarea 
+                          value={personaDraft.prompt} 
+                          onChange={(e) => setPersonaDraft(prev => ({ ...prev, prompt: e.target.value }))} 
+                          placeholder="Define the Persona's behavior and personality..." 
+                          className={`h-48 w-full resize-none rounded-xl px-4 py-4 text-sm outline-none transition ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 focus:border-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 focus:border-violet-500"}`} 
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>Preferred Model</label>
+                        <select
+                          value={personaDraft.model}
+                          onChange={(e) => setPersonaDraft(prev => ({ ...prev, model: e.target.value }))}
+                          className={`w-full rounded-xl px-4 py-3 text-sm outline-none transition ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 focus:border-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 focus:border-violet-500"}`}
+                        >
+                          <option value="">Use Default Setting</option>
+                          {availableModels.map(m => (
+                            <option key={m.id || m} value={m.id || m}>{m.id || m}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>Temperature ({personaDraft.temperature})</label>
+                        <input 
+                          type="range" min="0" max="2" step="0.1"
+                          value={personaDraft.temperature}
+                          onChange={(e) => setPersonaDraft(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
+                          className="w-full"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>Top P ({personaDraft.topP})</label>
+                        <input 
+                          type="range" min="0" max="1" step="0.01"
+                          value={personaDraft.topP}
+                          onChange={(e) => setPersonaDraft(prev => ({ ...prev, topP: parseFloat(e.target.value) }))}
+                          className="w-full"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>Max Output Tokens</label>
+                        <input
+                          type="number"
+                          value={personaDraft.maxTokens}
+                          onChange={(e) => setPersonaDraft(prev => ({ ...prev, maxTokens: parseInt(e.target.value, 10) }))}
+                          className={`w-full rounded-xl px-4 py-3 text-sm outline-none transition ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 focus:border-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 focus:border-violet-500"}`}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className={`text-xs font-bold uppercase tracking-wider ${textSub}`}>Context Window</label>
+                        <input
+                          type="number"
+                          value={personaDraft.contextWindow || 32768}
+                          onChange={(e) => setPersonaDraft(prev => ({ ...prev, contextWindow: parseInt(e.target.value, 10) }))}
+                          className={`w-full rounded-xl px-4 py-3 text-sm outline-none transition ${isLightTheme ? "border border-neutral-200 bg-neutral-50 text-neutral-800 focus:border-violet-400" : "border border-zinc-600 bg-zinc-800 text-zinc-100 focus:border-violet-500"}`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {memoryEditorOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: isLightTheme ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.85)" }} onClick={(e) => e.target === e.currentTarget && setMemoryEditorOpen(false)}>
               <div className={`flex h-[min(96vh,960px)] w-[min(98vw,1200px)] flex-col overflow-hidden rounded-2xl border shadow-2xl ${isLightTheme ? "border-neutral-200 bg-white" : "border-violet-500/30 bg-zinc-900"}`} onClick={(e) => e.stopPropagation()}>
@@ -695,7 +914,7 @@ export default function AIBotDesktopUI({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-auto p-6">
+                <div className={`min-h-0 flex-1 overflow-auto p-6 ${!isLightTheme ? "dark-scroll" : ""}`}>
                   <div className={`w-full overflow-x-auto rounded-xl border ${isLightTheme ? "border-neutral-200 bg-neutral-50" : "border-zinc-700/50 bg-zinc-800/50"}`}>
                     <table className="w-full min-w-[500px] border-collapse">
                       <thead>
@@ -736,10 +955,12 @@ export default function AIBotDesktopUI({
   );
 }
 
-function ContextIndicator({ messages, inputText, systemPrompt, contextLimit, isLightTheme }) {
+function ContextIndicator({ messages, inputText, systemPrompt, contextLimit, maxOutputTokens = 0, isLightTheme }) {
   const totalChars = (systemPrompt || "").length + messages.reduce((acc, m) => acc + (m.content || "").length, 0) + (inputText || "").length;
   const estimatedTokens = Math.ceil(totalChars / 4);
-  const percentage = Math.min(100, Math.round((estimatedTokens / contextLimit) * 100));
+  const safeLimit = Math.max(0, contextLimit - maxOutputTokens);
+  const isClogged = safeLimit < 100; // Warning threshold: less than 100 tokens left for history
+  const percentage = Math.min(100, Math.round((estimatedTokens / (safeLimit || 1)) * 100));
   
   // Circular progress params
   const size = 32;
@@ -751,9 +972,18 @@ function ContextIndicator({ messages, inputText, systemPrompt, contextLimit, isL
   return (
     <div className="group absolute bottom-3 right-3 flex items-center justify-center">
       {/* Tooltip on hover */}
-      <div className={`absolute bottom-full mb-2 hidden w-32 rounded-lg p-2 text-center text-[10px] shadow-xl group-hover:block ${isLightTheme ? "bg-neutral-800 text-white" : "bg-white text-neutral-800"}`}>
-        <p className="font-bold">{estimatedTokens.toLocaleString()} / {contextLimit.toLocaleString()}</p>
-        <p className="opacity-70 text-[8px]">tokens used</p>
+      <div className={`absolute bottom-full mb-2 hidden w-48 rounded-lg p-2 text-center text-[10px] shadow-xl group-hover:block ${isLightTheme ? "bg-neutral-800 text-white" : "bg-white text-neutral-800"}`}>
+        {isClogged ? (
+          <p className="font-bold text-red-500">Configuration Error</p>
+        ) : (
+          <p className="font-bold">{estimatedTokens.toLocaleString()} / {safeLimit.toLocaleString()}</p>
+        )}
+        <p className="opacity-70 text-[8px]">tokens used (History)</p>
+        <div className="mt-1 border-t border-white/10 pt-1 text-[8px] space-y-0.5">
+          <div className="flex justify-between px-1"><span>Reserved for AI:</span><span>{maxOutputTokens.toLocaleString()}</span></div>
+          <div className="flex justify-between px-1"><span>Context Window:</span><span>{contextLimit.toLocaleString()}</span></div>
+        </div>
+        {isClogged && <p className="mt-1 text-[7px] text-amber-500 leading-tight">History slot is too small! Lower "Max Output Tokens" or increase "Context Window".</p>}
         <div className={`absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent ${isLightTheme ? "border-t-neutral-800" : "border-t-white"}`}></div>
       </div>
 
@@ -777,11 +1007,11 @@ function ContextIndicator({ messages, inputText, systemPrompt, contextLimit, isL
             strokeWidth={strokeWidth}
             strokeDasharray={circumference}
             style={{ strokeDashoffset: offset }}
-            className={`transition-all duration-500 ease-out ${percentage > 90 ? "text-red-500" : percentage > 70 ? "text-amber-500" : "text-violet-500"}`}
+            className={`transition-all duration-500 ease-out ${isClogged || percentage > 90 ? "text-red-500" : percentage > 70 ? "text-amber-500" : "text-violet-500"}`}
           />
         </svg>
-        <div className={`absolute inset-0 flex items-center justify-center text-[8px] font-bold ${isLightTheme ? "text-neutral-500" : "text-neutral-400"}`}>
-          {percentage}%
+        <div className={`absolute inset-0 flex items-center justify-center text-[8px] font-bold ${isLightTheme ? "text-neutral-500" : (isClogged ? "text-red-500" : "text-neutral-400")}`}>
+          {isClogged ? "!!" : `${percentage}%`}
         </div>
       </div>
     </div>
@@ -800,8 +1030,16 @@ function SettingRow({ item, currentValue, onAction, onValueChange, inputBg, card
         </div>
         <div className={item.type === "prompt-trigger" ? "min-w-[200px] max-w-md" : "min-w-[240px]"}>
           {item.type === "select" && (
-            <select value={currentValue} onChange={(e) => onValueChange(e.target.value)} className={`w-full px-3 py-2 text-sm outline-none ${borderClass} ${radiusClass} ${inputBg}`}>
-              {(item.options ?? []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+            <select 
+              value={currentValue} 
+              onChange={(e) => (item.onValueChange ? item.onValueChange(e.target.value) : onValueChange(e.target.value))} 
+              className={`w-full px-3 py-2 text-sm outline-none ${borderClass} ${radiusClass} ${inputBg}`}
+            >
+              {(item.options ?? []).map((opt) => {
+                const val = typeof opt === "object" ? opt[item.valueKey || "id"] : opt;
+                const lab = typeof opt === "object" ? opt[item.labelKey || "name"] : opt;
+                return <option key={val} value={val}>{lab}</option>;
+              })}
             </select>
           )}
           {item.type === "input" && (
@@ -813,9 +1051,14 @@ function SettingRow({ item, currentValue, onAction, onValueChange, inputBg, card
             />
           )}
           {item.type === "prompt-trigger" && (
-            <button type="button" onClick={onAction} className={`w-full truncate px-3 py-2.5 text-left text-sm transition hover:opacity-90 ${borderClass} ${radiusClass} ${inputBg}`}>
+            <button 
+              type="button" 
+              onClick={item.disabled ? undefined : (item.onAction ?? onAction)} 
+              disabled={item.disabled}
+              className={`w-full truncate px-3 py-2.5 text-left text-sm transition ${item.disabled ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"} ${borderClass} ${radiusClass} ${inputBg}`}
+            >
               <span className="block truncate">{(currentValue || "").slice(0, 60)}{(currentValue || "").length > 60 ? "…" : ""}</span>
-              <span className="mt-1 block text-xs opacity-70">Click to edit</span>
+              <span className="mt-1 block text-xs opacity-70">{item.disabled ? "Managed by active Persona" : "Click to edit"}</span>
             </button>
           )}
           {item.type === "slider" && (
@@ -834,7 +1077,7 @@ function SettingRow({ item, currentValue, onAction, onValueChange, inputBg, card
             </button>
           )}
           {item.type === "action" && (
-            <button onClick={onAction} className={`w-full bg-white px-3 py-2 text-sm font-medium text-black transition hover:opacity-90 ${radiusClass}`}>
+            <button onClick={item.onAction ?? onAction} className={`w-full bg-white px-3 py-2 text-sm font-medium text-black transition hover:opacity-90 ${radiusClass}`}>
               {item.buttonLabel ?? "Open"}
             </button>
           )}

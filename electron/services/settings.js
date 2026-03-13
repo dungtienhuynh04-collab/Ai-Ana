@@ -23,6 +23,8 @@ const DEFAULT_SETTINGS = {
   "Context Window": "32768",
   "System Prompt": "You are a helpful AI assistant. Adapt to the user's needs.",
   "System Prompts": "[]",
+  Personas: "[]",
+  "Active Persona ID": "",
   Streaming: "Enabled",
   "STT Provider": "Local / Whisper",
   "STT Model": "faster-whisper-large-v3",
