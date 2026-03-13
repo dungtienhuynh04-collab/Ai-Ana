@@ -38,6 +38,8 @@ const DEFAULT_SETTINGS = {
   "Short Memory Turns": "12",
   "Long-Term Memory": "Enabled",
   "Memory Provider": "Local Vector Store",
+  "Embedding Model Name": "nomic-embed-text",
+  "Embedding Endpoint": "",
   "Auto Save Memories": "Review First",
   "Memory Retrieval": "Balanced",
   "Tool Calling": "Allowed",

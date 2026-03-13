@@ -87,10 +87,34 @@ ipcMain.handle("memory:search", async (_, query) => {
 ipcMain.handle("memory:add", async (_, record) => {
   const settings = settingsService.getAll();
   const capacity = parseInt(settings["Database Capacity"] || "100", 10);
+  
+  // If a user manually adds a memory, generate its vector
+  if (!record.vector && record.content) {
+    try {
+      const vector = await llmService.getEmbedding(record.content, true);
+      if (vector) {
+        record.vector = JSON.stringify(vector);
+      }
+    } catch (e) {
+      logService.error("Memory Add", `Failed to generate vector: ${e.message}`);
+    }
+  }
+  
   return memoryService.add(record, capacity);
 });
 
 ipcMain.handle("memory:update", async (_, id, content) => {
+  // When a user manually edits a memory, we should re-calculate its vector
+  try {
+    const vector = await llmService.getEmbedding(content, true);
+    if (vector) {
+      return memoryService.update(id, content, JSON.stringify(vector));
+    }
+  } catch (e) {
+    logService.error("Memory Update", `Failed to generate new vector: ${e.message}`);
+  }
+  
+  // Fallback: update content without changing vector
   return memoryService.update(id, content);
 });
 

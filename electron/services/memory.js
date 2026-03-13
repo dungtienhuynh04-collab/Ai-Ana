@@ -20,11 +20,19 @@ export const memoryService = {
         content TEXT NOT NULL,
         time TEXT NOT NULL,
         score REAL DEFAULT 0.5,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (datetime('now')),
+        vector TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_memories_content ON memories(content);
       CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user);
     `);
+
+    // Migration: Add vector column if it doesn't exist
+    const columns = db.prepare("PRAGMA table_info(memories)").all();
+    const hasVector = columns.some(col => col.name === 'vector');
+    if (!hasVector) {
+      db.exec("ALTER TABLE memories ADD COLUMN vector TEXT");
+    }
   },
 
   close() {
@@ -61,45 +69,42 @@ export const memoryService = {
     }));
   },
 
-  searchMulti(keywords, limit = 10, retrievalMode = "Balanced") {
-    if (!db || !keywords?.length) return [];
-    const seen = new Map(); // id -> { row, matchCount }
+  cosineSimilarity(vecA, vecB) {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  },
+
+  searchVector(queryVector, limit = 3, minScore = 0.5) {
+    if (!db || !queryVector) return [];
     
-    for (const kw of keywords) {
-      if (!kw || kw.length < 2) continue;
-      const q = `%${kw}%`;
-      const rows = db
-        .prepare("SELECT id, user, content, time, score FROM memories WHERE content LIKE ? ORDER BY id DESC LIMIT 20")
-        .all(q);
-      for (const r of rows) {
-        if (seen.has(r.id)) {
-          seen.get(r.id).matchCount++;
-        } else {
-          seen.set(r.id, { row: r, matchCount: 1 });
+    // Fetch all memories that have a vector
+    const rows = db.prepare("SELECT id, user, content, time, score, vector FROM memories WHERE vector IS NOT NULL").all();
+    
+    const results = [];
+    for (const row of rows) {
+      try {
+        const vec = JSON.parse(row.vector);
+        const similarity = this.cosineSimilarity(queryVector, vec);
+        if (similarity >= minScore) {
+          results.push({ ...row, similarity });
         }
+      } catch (e) {
+        // Ignore JSON parse errors
       }
     }
-
-    // Determine threshold based on retrieval mode
-    const totalKeywords = keywords.length;
-    let minMatchRequired = 1;
-
-    if (retrievalMode === "Precise") {
-      // Require at least 50% of keywords to match, or minimum 2 if there are many keywords
-      minMatchRequired = Math.max(1, Math.ceil(totalKeywords * 0.5));
-    } else if (retrievalMode === "Aggressive") {
-      // Any single match is fine
-      minMatchRequired = 1;
-    } else {
-      // Balanced: If there are 3+ keywords, require at least 2 matches
-      minMatchRequired = totalKeywords >= 3 ? 2 : 1;
-    }
-
-    return [...seen.values()]
-      .filter(e => e.matchCount >= minMatchRequired)
-      .sort((a, b) => b.matchCount - a.matchCount || b.row.id - a.row.id)
-      .slice(0, limit)
-      .map((e) => e.row);
+    
+    // Sort by similarity descending
+    results.sort((a, b) => b.similarity - a.similarity);
+    
+    return results.slice(0, limit);
   },
 
   add(record, limit = null) {
@@ -123,22 +128,29 @@ export const memoryService = {
     }
 
     const stmt = db.prepare(
-      "INSERT INTO memories (user, content, time, score) VALUES (?, ?, ?, ?)"
+      "INSERT INTO memories (user, content, time, score, vector) VALUES (?, ?, ?, ?, ?)"
     );
     const result = stmt.run(
       record.user || "User",
       record.content || "",
       record.time || new Date().toISOString().slice(0, 16).replace("T", " "),
-      record.score ?? 0.5
+      record.score ?? 0.5,
+      record.vector || null
     );
     return result.lastInsertRowid;
   },
 
-  update(id, content) {
+  update(id, content, vector = null) {
     if (!db) return false;
-    const stmt = db.prepare("UPDATE memories SET content = ? WHERE id = ?");
-    const result = stmt.run(content, id);
-    return result.changes > 0;
+    if (vector) {
+      const stmt = db.prepare("UPDATE memories SET content = ?, vector = ? WHERE id = ?");
+      const result = stmt.run(content, vector, id);
+      return result.changes > 0;
+    } else {
+      const stmt = db.prepare("UPDATE memories SET content = ? WHERE id = ?");
+      const result = stmt.run(content, id);
+      return result.changes > 0;
+    }
   },
 
   delete(id) {

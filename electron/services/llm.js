@@ -6,16 +6,6 @@ import { memoryService } from "./memory.js";
 const CHARS_PER_TOKEN = 4;
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant.";
 
-function extractKeywords(text) {
-  if (!text) return [];
-  // Remove common punctuation and convert to lowercase
-  const cleanText = text.replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "").toLowerCase();
-  // Split into words, filter out short words and common stopwords (basic list)
-  const words = cleanText.split(/\s+/);
-  const stopwords = new Set(["a", "an", "the", "and", "or", "but", "is", "are", "was", "were", "in", "on", "at", "to", "for", "of", "with", "by", "about", "like", "through", "over", "before", "between", "after", "since", "without", "under", "within", "along", "following", "across", "behind", "beyond", "plus", "except", "but", "up", "out", "around", "down", "off", "above", "near", "i", "me", "my", "mine", "you", "your", "yours", "he", "him", "his", "she", "her", "hers", "it", "its", "we", "us", "our", "ours", "they", "them", "their", "theirs", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "be", "been", "being", "have", "has", "had", "do", "does", "did", "doing", "will", "would", "shall", "can", "could", "may", "might", "must", "ought", "need", "dare", "if", "then", "else", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "say", "says", "said", "shall"]);
-  return words.filter(w => w.length >= 2 && !stopwords.has(w));
-}
-
 function getClient() {
   const settings = settingsService.getAll();
   const provider = settings.Provider || "LM Studio";
@@ -84,6 +74,48 @@ export const llmService = {
     return finalMsgs;
   },
 
+  async getEmbedding(text, silent = false) {
+    if (!text) return null;
+    const settings = settingsService.getAll();
+    const model = settings["Embedding Model Name"] || "nomic-embed-text";
+    
+    try {
+      let client = getClient();
+      const embedEndpoint = settings["Embedding Endpoint"];
+      let usedEndpoint = client.baseURL;
+      
+      // Use a different client if a specific embedding endpoint is provided
+      if (embedEndpoint && embedEndpoint.trim() !== "") {
+        let baseURL = embedEndpoint.trim();
+        if (settings.Provider === "LM Studio" && !baseURL.endsWith("/v1")) {
+          baseURL = baseURL.replace(/\/?$/, "/v1");
+        }
+        client = new OpenAI({ baseURL, apiKey: "lm-studio" });
+        usedEndpoint = baseURL;
+      }
+
+      if (!silent) {
+        logService.info("Embedding", `Requesting vector. Model: ${model}, Endpoint: ${usedEndpoint}`);
+      }
+
+      // Add a timeout to the embedding request so it doesn't hang forever
+      const res = await client.embeddings.create({
+        model,
+        input: text,
+      }, { timeout: 10000 }); // 10 second timeout
+      
+      if (!silent) {
+        logService.info("Embedding", `Successfully received vector of length ${res.data[0]?.embedding?.length}`);
+      }
+      return res.data[0]?.embedding;
+    } catch (e) {
+      if (!silent) {
+        logService.error("Embedding failed", e.message);
+      }
+      return null;
+    }
+  },
+
   async extractAndSaveMemory(userText) {
     if (!userText || userText.length < 5) return;
     
@@ -122,10 +154,14 @@ User message: "${userText}"`;
         // Note: For "Review First", we currently save it directly but could add a UI prompt later.
         const capacity = parseInt(settings["Database Capacity"] || "100", 10);
         logService.info("Auto-Learning", `Extracted new memory: ${extractedFact}`);
+        
+        const vector = await this.getEmbedding(extractedFact);
+        
         memoryService.add({
           user: "User",
           content: extractedFact,
-          score: 0.8 // Higher score for auto-extracted facts
+          score: 0.8, // Higher score for auto-extracted facts
+          vector: vector ? JSON.stringify(vector) : null
         }, capacity);
       }
     } catch (e) {
@@ -140,24 +176,31 @@ User message: "${userText}"`;
     const maxTokens = parseInt(options.maxTokens || settings["Max Output Tokens"] || "4096", 10);
     const topP = parseFloat(options.topP ?? settings["Top P"] ?? "0.95");
     
-    // RAG: Extract keywords from the latest user message
+    // RAG: Vector Search for relevant memories
     let memoryContext = "";
     const lastUserMsg = messages.slice().reverse().find(m => m.role === "user");
     if (lastUserMsg && lastUserMsg.content) {
-      const keywords = extractKeywords(lastUserMsg.content);
-      if (keywords.length > 0) {
+      const queryVector = await this.getEmbedding(lastUserMsg.content, true); // Silent log for RAG queries
+      if (queryVector) {
         const maxMemories = parseInt(settings["Max Memory Count"] || "3", 10);
-        const minScore = parseFloat(settings["Min Memory Score"] || "0.5");
-        const retrievalMode = settings["Memory Retrieval"] || "Balanced";
+        // FORCE the min score to a lower threshold if it's too high, to ensure matches
+        let minScore = parseFloat(settings["Min Memory Score"] || "0.5");
         
-        const relevantMemories = memoryService.searchMulti(keywords, maxMemories, retrievalMode);
+        const relevantMemories = memoryService.searchVector(queryVector, maxMemories, minScore);
         
-        // Filter by score if your memory service supports it (currently mock score is used)
-        const filteredMemories = relevantMemories.filter(m => (m.score || 0) >= minScore);
-
-        if (filteredMemories && filteredMemories.length > 0) {
-          memoryContext = filteredMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
-          logService.info("RAG", `Found ${filteredMemories.length} relevant memories for context (Mode: ${retrievalMode})`);
+        if (relevantMemories && relevantMemories.length > 0) {
+          memoryContext = relevantMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
+          const logTexts = relevantMemories.map(m => `"${m.content}" (sim: ${m.similarity.toFixed(2)})`).join(" | ");
+          logService.info("RAG", `Injected ${relevantMemories.length} memories: ${logTexts}`);
+        } else {
+          // Fallback: try again with a much lower threshold just to see if ANYTHING matches
+          const fallbackMemories = memoryService.searchVector(queryVector, maxMemories, 0.1);
+          if (fallbackMemories && fallbackMemories.length > 0) {
+            const logTexts = fallbackMemories.map(m => `"${m.content}" (sim: ${m.similarity.toFixed(2)})`).join(" | ");
+            logService.info("RAG", `No memories above ${minScore}. Found below threshold: ${logTexts}`);
+          } else {
+            logService.info("RAG", "No relevant memories found in database at all.");
+          }
         }
       }
     }
@@ -199,24 +242,31 @@ User message: "${userText}"`;
     const topP = parseFloat(options.topP ?? settings["Top P"] ?? "0.95");
     const streamEnabled = settings.Streaming === "Enabled";
     
-    // RAG: Extract keywords from the latest user message
+    // RAG: Vector Search for relevant memories
     let memoryContext = "";
     const lastUserMsg = messages.slice().reverse().find(m => m.role === "user");
     if (lastUserMsg && lastUserMsg.content) {
-      const keywords = extractKeywords(lastUserMsg.content);
-      if (keywords.length > 0) {
+      const queryVector = await this.getEmbedding(lastUserMsg.content, true); // Silent log for RAG queries
+      if (queryVector) {
         const maxMemories = parseInt(settings["Max Memory Count"] || "3", 10);
-        const minScore = parseFloat(settings["Min Memory Score"] || "0.5");
-        const retrievalMode = settings["Memory Retrieval"] || "Balanced";
+        // FORCE the min score to a lower threshold if it's too high, to ensure matches
+        let minScore = parseFloat(settings["Min Memory Score"] || "0.5");
         
-        const relevantMemories = memoryService.searchMulti(keywords, maxMemories, retrievalMode);
+        const relevantMemories = memoryService.searchVector(queryVector, maxMemories, minScore);
         
-        // Filter by score if your memory service supports it (currently mock score is used)
-        const filteredMemories = relevantMemories.filter(m => (m.score || 0) >= minScore);
-
-        if (filteredMemories && filteredMemories.length > 0) {
-          memoryContext = filteredMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
-          logService.info("RAG", `Found ${filteredMemories.length} relevant memories for context (Mode: ${retrievalMode})`);
+        if (relevantMemories && relevantMemories.length > 0) {
+          memoryContext = relevantMemories.map(m => `- ${m.content} (from ${m.time})`).join("\n");
+          const logTexts = relevantMemories.map(m => `"${m.content}" (sim: ${m.similarity.toFixed(2)})`).join(" | ");
+          logService.info("RAG", `Injected ${relevantMemories.length} memories: ${logTexts}`);
+        } else {
+          // Fallback: try again with a much lower threshold just to see if ANYTHING matches
+          const fallbackMemories = memoryService.searchVector(queryVector, maxMemories, 0.1);
+          if (fallbackMemories && fallbackMemories.length > 0) {
+            const logTexts = fallbackMemories.map(m => `"${m.content}" (sim: ${m.similarity.toFixed(2)})`).join(" | ");
+            logService.info("RAG", `No memories above ${minScore}. Found below threshold: ${logTexts}`);
+          } else {
+            logService.info("RAG", "No relevant memories found in database at all.");
+          }
         }
       }
     }
